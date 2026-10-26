@@ -1,0 +1,212 @@
+// Stub LLM gateway for tests. Stands in for the platform LLM proxy:
+// speaks Anthropic /v1/messages and OpenAI /v1/responses + /v1/chat/completions,
+// enforces a per-key model allowlist, and logs every request to requests.jsonl.
+//
+// Scripted replies: if the latest user text contains `RUN: <command>`, the reply is a
+// tool call to whichever shell tool the client offered; otherwise a plain text echo.
+import http from "node:http";
+import fs from "node:fs";
+import crypto from "node:crypto";
+
+const PORT = Number(process.env.PORT || 4000);
+const LOG = process.env.STUB_LOG || new URL("./requests.jsonl", import.meta.url).pathname;
+
+// key -> allowed models. "*" allows everything (control key).
+const SCOPED = ["claude-sonnet-5-5", "claude-haiku-5-5", "gpt-5.6-terra", "gpt-6-luna"];
+const KEYS = {
+  "test-key-scoped": SCOPED,
+  "test-key-open": ["*"],
+};
+const ALL_MODELS = [
+  "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5",
+  "gpt-5.6-terra", "gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra",
+];
+
+const id = (p) => `${p}_${crypto.randomBytes(8).toString("hex")}`;
+const log = (entry) => fs.appendFileSync(LOG, JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n");
+
+function keyOf(req) {
+  const auth = req.headers["authorization"] || "";
+  return req.headers["x-api-key"] || auth.replace(/^Bearer\s+/i, "") || null;
+}
+
+function allowed(key, model) {
+  const list = KEYS[key];
+  if (!list) return { ok: false, status: 401, why: "unknown key" };
+  if (list.includes("*") || list.includes(model)) return { ok: true };
+  return { ok: false, status: 403, why: `model ${model} not allowed for this key` };
+}
+
+function textOf(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((c) => c.text ?? c.input_text ?? (typeof c.content === "string" ? c.content : "")).join("\n");
+}
+
+// Latest user-authored text, or null when the last turn is a tool result (then we just finish).
+function lastUserText(messages) {
+  const last = messages[messages.length - 1];
+  if (!last) return "";
+  if (last.role === "tool") return null;
+  if (Array.isArray(last.content) && last.content.some((c) => c.type === "tool_result" || c.type === "function_call_output")) return null;
+  if (last.type === "function_call_output") return null;
+  return textOf(last.content);
+}
+
+// Pick a shell-like tool and build arguments from its schema.
+function shellCall(tools, command) {
+  const norm = (t) => ({
+    name: t.name ?? t.function?.name,
+    schema: t.input_schema ?? t.parameters ?? t.function?.parameters ?? {},
+  });
+  const cands = (tools || []).map(norm).filter((t) => t.name && /^(bash|shell|exec_command|local_shell|run_terminal_cmd)$/i.test(t.name));
+  const tool = cands[0] || (tools || []).map(norm).find((t) => /bash|shell|exec/i.test(t.name || ""));
+  if (!tool) return null;
+  const props = tool.schema.properties || {};
+  const args = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (/^(command|cmd)$/.test(k)) args[k] = v.type === "array" ? ["bash", "-lc", command] : command;
+    else if (k === "description") args[k] = "test command";
+  }
+  if (!Object.keys(args).length) args.command = command;
+  return { name: tool.name, args };
+}
+
+function plan(model, userText, tools) {
+  if (userText === null) return { kind: "text", text: `done (model=${model})` };
+  const m = /RUN:\s*([\s\S]+)$/m.exec(userText || "");
+  if (m) {
+    const call = shellCall(tools, m[1].trim());
+    if (call) return { kind: "tool", ...call };
+  }
+  return { kind: "text", text: `stub reply from ${model}. You said: ${(userText || "").slice(0, 200)}` };
+}
+
+function sse(res) {
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+  return (event, data) => res.write((event ? `event: ${event}\n` : "") + `data: ${JSON.stringify(data)}\n\n`);
+}
+
+const usage = { input_tokens: 10, output_tokens: 5 };
+
+function anthropic(req, res, body) {
+  const p = plan(body.model, lastUserText(body.messages || []), body.tools);
+  const msgId = id("msg");
+  const blocks = p.kind === "tool"
+    ? [{ type: "tool_use", id: id("toolu"), name: p.name, input: p.args }]
+    : [{ type: "text", text: p.text }];
+  const stop = p.kind === "tool" ? "tool_use" : "end_turn";
+  if (!body.stream) {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ id: msgId, type: "message", role: "assistant", model: body.model, content: blocks, stop_reason: stop, stop_sequence: null, usage }));
+  }
+  const send = sse(res);
+  send("message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } });
+  blocks.forEach((b, i) => {
+    if (b.type === "text") {
+      send("content_block_start", { type: "content_block_start", index: i, content_block: { type: "text", text: "" } });
+      send("content_block_delta", { type: "content_block_delta", index: i, delta: { type: "text_delta", text: b.text } });
+    } else {
+      send("content_block_start", { type: "content_block_start", index: i, content_block: { type: "tool_use", id: b.id, name: b.name, input: {} } });
+      send("content_block_delta", { type: "content_block_delta", index: i, delta: { type: "input_json_delta", partial_json: JSON.stringify(b.input) } });
+    }
+    send("content_block_stop", { type: "content_block_stop", index: i });
+  });
+  send("message_delta", { type: "message_delta", delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: 5 } });
+  send("message_stop", { type: "message_stop" });
+  res.end();
+}
+
+function responses(req, res, body) {
+  const input = Array.isArray(body.input) ? body.input : [{ role: "user", content: body.input }];
+  const p = plan(body.model, lastUserText(input), body.tools);
+  const respId = id("resp");
+  const item = p.kind === "tool"
+    ? { type: "function_call", id: id("fc"), call_id: id("call"), name: p.name, arguments: JSON.stringify(p.args), status: "completed" }
+    : { type: "message", id: id("msg"), role: "assistant", status: "completed", content: [{ type: "output_text", text: p.text, annotations: [] }] };
+  const u = { input_tokens: 10, output_tokens: 5, total_tokens: 15, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } };
+  const full = { id: respId, object: "response", created_at: Math.floor(Date.now() / 1000), status: "completed", model: body.model, output: [item], usage: u };
+  if (!body.stream) {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify(full));
+  }
+  const send = sse(res);
+  let seq = 0;
+  const ev = (type, extra) => send(type, { type, sequence_number: seq++, ...extra });
+  ev("response.created", { response: { ...full, status: "in_progress", output: [] } });
+  ev("response.in_progress", { response: { ...full, status: "in_progress", output: [] } });
+  ev("response.output_item.added", { output_index: 0, item: { ...item, status: "in_progress", ...(item.type === "message" ? { content: [] } : { arguments: "" }) } });
+  if (item.type === "message") {
+    ev("response.content_part.added", { item_id: item.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } });
+    ev("response.output_text.delta", { item_id: item.id, output_index: 0, content_index: 0, delta: p.text });
+    ev("response.output_text.done", { item_id: item.id, output_index: 0, content_index: 0, text: p.text });
+    ev("response.content_part.done", { item_id: item.id, output_index: 0, content_index: 0, part: item.content[0] });
+  } else {
+    ev("response.function_call_arguments.delta", { item_id: item.id, output_index: 0, delta: item.arguments });
+    ev("response.function_call_arguments.done", { item_id: item.id, output_index: 0, arguments: item.arguments });
+  }
+  ev("response.output_item.done", { output_index: 0, item });
+  ev("response.completed", { response: full });
+  res.end();
+}
+
+function chat(req, res, body) {
+  const msgs = body.messages || [];
+  const p = plan(body.model, lastUserText(msgs), body.tools);
+  const cid = id("chatcmpl");
+  const created = Math.floor(Date.now() / 1000);
+  const toolCalls = p.kind === "tool" ? [{ index: 0, id: id("call"), type: "function", function: { name: p.name, arguments: JSON.stringify(p.args) } }] : undefined;
+  const finish = p.kind === "tool" ? "tool_calls" : "stop";
+  if (!body.stream) {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ id: cid, object: "chat.completion", created, model: body.model, choices: [{ index: 0, message: { role: "assistant", content: p.kind === "text" ? p.text : null, tool_calls: toolCalls }, finish_reason: finish }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }));
+  }
+  const send = sse(res);
+  const chunk = (delta, fr = null) => send(null, { id: cid, object: "chat.completion.chunk", created, model: body.model, choices: [{ index: 0, delta, finish_reason: fr }] });
+  chunk({ role: "assistant", ...(p.kind === "text" ? { content: p.text } : { tool_calls: toolCalls }) });
+  chunk({}, finish);
+  send(null, { id: cid, object: "chat.completion.chunk", created, model: body.model, choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  res.write("data: [DONE]\n\n");
+  res.end();
+}
+
+const server = http.createServer((req, res) => {
+  let raw = "";
+  req.on("data", (c) => (raw += c));
+  req.on("end", () => {
+    const path = req.url.split("?")[0].replace(/^\/v1(?=\/)/, "").replace(/^\/openai(?=\/)/, "").replace(/^\/anthropic(?=\/)/, "");
+    let body = {};
+    try { body = raw ? JSON.parse(raw) : {}; } catch { /* non-JSON */ }
+    const key = keyOf(req);
+    const entry = { method: req.method, url: req.url, key: key ? key.slice(0, 14) : null, model: body.model ?? null, stream: !!body.stream, tools: (body.tools || []).map((t) => t.name ?? t.function?.name ?? t.type).slice(0, 40), ua: req.headers["user-agent"] };
+
+    if (req.method === "GET" && path === "/models") {
+      const list = (KEYS[key] || []).includes("*") ? ALL_MODELS : (KEYS[key] || []);
+      log({ ...entry, status: KEYS[key] ? 200 : 401 });
+      if (!KEYS[key]) { res.writeHead(401); return res.end(JSON.stringify({ error: { message: "unknown key" } })); }
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ object: "list", data: list.map((m) => ({ id: m, object: "model", type: "model", display_name: m, created_at: "2026-01-01T00:00:00Z", owned_by: "stub" })), has_more: false }));
+    }
+    if (req.method === "POST" && path === "/messages/count_tokens") {
+      log({ ...entry, status: 200 });
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ input_tokens: 42 }));
+    }
+    const route = { "/messages": anthropic, "/responses": responses, "/chat/completions": chat }[path];
+    if (req.method !== "POST" || !route) {
+      log({ ...entry, status: 404 });
+      res.writeHead(404, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ error: { message: `stub has no ${req.method} ${req.url}` } }));
+    }
+    const gate = allowed(key, body.model);
+    if (!gate.ok) {
+      log({ ...entry, status: gate.status, why: gate.why });
+      res.writeHead(gate.status, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ type: "error", error: { type: gate.status === 401 ? "authentication_error" : "permission_error", message: gate.why } }));
+    }
+    log({ ...entry, status: 200, lastUser: (lastUserText(body.messages || (Array.isArray(body.input) ? body.input : [])) || "").slice(0, 120) });
+    try { route(req, res, body); } catch (e) { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }
+  });
+});
+
+server.listen(PORT, "0.0.0.0", () => console.log(`stub gateway on :${PORT}, log ${LOG}`));

@@ -1,0 +1,48 @@
+# Draft runtime image for the simulation. Locally it starts from Ubuntu; on the platform the
+# first stage's base becomes the platform's base image (which already has the session user).
+#
+#   docker build -f image/Dockerfile -t cosmo-agents:dev .
+
+FROM node:22-bookworm AS build
+WORKDIR /src
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY vite.config.js ./
+COPY client ./client
+RUN npm run build
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg sudo bubblewrap git python3 procps jq \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# The session user (the agent's tools run as this user) and the simulation's own user.
+RUN id runner >/dev/null 2>&1 || useradd -m -s /bin/bash runner; \
+    useradd --system --home-dir /var/lib/agentsim/home --shell /usr/sbin/nologin agentsim; \
+    mkdir -p /usercode/FILESYSTEM && chown runner:runner /usercode/FILESYSTEM
+
+# Pinned engines, straight from the pin table.
+COPY policy/pins.json /tmp/pins.json
+RUN npm install -g --no-fund --no-audit $(node -e 'const p=require("/tmp/pins.json");console.log(Object.values(p.engines).map(e=>e.package+"@"+e.version).join(" "))') \
+    && rm /tmp/pins.json
+
+# The simulation, root-owned so neither the session user nor the agentsim user can change it.
+COPY package.json /opt/agentsim/package.json
+COPY server /opt/agentsim/server
+COPY policy /opt/agentsim/policy
+COPY root /opt/agentsim/root
+COPY scripts /opt/agentsim/scripts
+COPY --from=build /src/dist /opt/agentsim/dist
+RUN mkdir -p /opt/agentsim/bin \
+    && mv /opt/agentsim/root/bin/* /opt/agentsim/bin/ && rmdir /opt/agentsim/root/bin \
+    && install -m 0440 -o root -g root /opt/agentsim/root/sudoers /etc/sudoers.d/agentsim \
+    && rm /opt/agentsim/root/sudoers \
+    && visudo -cf /etc/sudoers.d/agentsim \
+    && chown -R root:root /opt/agentsim && chmod -R go-w /opt/agentsim \
+    && chmod 0755 /opt/agentsim/bin/* /opt/agentsim/scripts/* \
+    && mkdir -p /var/lib/agentsim/home && chown agentsim:agentsim /var/lib/agentsim/home
+
+WORKDIR /usercode/FILESYSTEM

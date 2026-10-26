@@ -1,0 +1,10 @@
+{
+  "agents": ["opencosmo", "cosmodex", "cosmo-code"],
+  "default": "opencosmo",
+  "allowSwitch": true,
+  "models": {
+    "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5", "openai/gpt-5.6-terra"] },
+    "cosmodex": { "allowed": ["gpt-5.6-terra"] },
+    "cosmo-code": { "allowed": ["claude-sonnet-5-5"] }
+  }
+}

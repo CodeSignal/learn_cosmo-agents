@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Cosmo Agents</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./design-system/colors/colors.css">
+  <link rel="stylesheet" href="./design-system/spacing/spacing.css">
+  <link rel="stylesheet" href="./design-system/typography/typography.css">
+
+  <link rel="stylesheet" href="./design-system/components/button/button.css">
+  <link rel="stylesheet" href="./design-system/components/boxes/boxes.css">
+  <link rel="stylesheet" href="./design-system/components/dropdown/dropdown.css">
+  <link rel="stylesheet" href="./design-system/components/tags/tags.css">
+  <link rel="stylesheet" href="./design-system/components/modal/modal.css">
+
+  <link rel="stylesheet" href="./bespoke-template.css" />
+  <link rel="stylesheet" href="./shell.css" />
+</head>
+<body class="bespoke">
+  <header class="header">
+    <h1 class="heading-small">Cosmo Agents</h1>
+    <div id="agent-switcher" class="agent-switcher" aria-label="Coding agent"></div>
+    <div id="agent-status" class="agent-status" aria-live="polite"></div>
+    <div class="spacer"></div>
+    <button id="btn-help" class="button button-text">Help</button>
+  </header>
+
+  <main id="agent-stage" class="agent-stage">
+    <div id="stage-message" class="stage-message">
+      <div class="box card non-interactive stage-card">
+        <p class="body-large" id="stage-message-text">Starting your coding agent…</p>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

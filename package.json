@@ -1,0 +1,25 @@
+{
+  "name": "learn_cosmo-agents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bespoke simulation: coding agent UIs on real agent engines, locked down for assessments",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "npm run start:prod",
+    "start:prod": "IS_PRODUCTION=true node server/index.mjs",
+    "start:dev": "concurrently \"npm run dev:vite\" \"npm run dev:api\"",
+    "dev:vite": "vite",
+    "dev:api": "POLICY_PATH=${POLICY_PATH:-dev/agent-sim.json} PORT=3001 node --watch server/index.mjs",
+    "build": "vite build",
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:container": "sh test/container/run.sh",
+    "preview": "vite build && PORT=3005 IS_PRODUCTION=true POLICY_PATH=dev/agent-sim.json node server/index.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "vite": "^7.2.4"
+  }
+}

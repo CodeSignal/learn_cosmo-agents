@@ -1,0 +1,183 @@
+// Root supervisor. Starts the simulation's processes under their own users, restarts any that
+// die, and kills a process that takes over a supervised port (an agent can kill an engine it
+// owns and start its own copy without the lockdown; this undoes that and logs it).
+//
+//   supervisor.mjs --daemon   detach and run in the background (what agentsim-start calls)
+//   supervisor.mjs            run in the foreground
+import fs from "node:fs";
+import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { listeningSockets, readTables, pidsForInodes, uidOf, descendsFrom } from "./procnet.mjs";
+
+const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const RUN_DIR = "/run/agentsim";
+const PID_FILE = `${RUN_DIR}/supervisor.pid`;
+const LOG_DIR = "/var/log/agentsim";
+const STATE_DIR = "/var/lib/agentsim";
+const EVENTS_DIR = `${STATE_DIR}/events`;
+const POLICY = "/etc/agentsim/policy.json";
+const MARKER = `${STATE_DIR}/applied`;
+const CHECK_MS = 2000;
+const MAX_BACKOFF_MS = 10_000;
+
+const log = (type, detail = {}) => {
+  const line = JSON.stringify({ at: new Date().toISOString(), source: "supervisor", type, ...detail });
+  fs.appendFileSync(`${STATE_DIR}/supervisor.jsonl`, line + "\n");
+  console.log(line);
+};
+
+function passwd() {
+  return fs.readFileSync("/etc/passwd", "utf8").split("\n").filter(Boolean).map((l) => {
+    const [name, , uid, gid, , home] = l.split(":");
+    return { name, uid: Number(uid), gid: Number(gid), home };
+  });
+}
+
+function account(user) {
+  const acct = passwd().find((a) => a.name === user);
+  if (!acct) throw new Error(`no such user: ${user}`);
+  return acct;
+}
+
+/**
+ * PIDs holding a socket owned by `uid`. Root tries /proc directly; without CAP_SYS_PTRACE that
+ * fails for other users' processes, so the lookup is repeated as that uid. Only pids that
+ * really run as `uid` are returned, whatever the helper prints.
+ */
+function socketOwners(inode, uid) {
+  let pids = [...pidsForInodes(new Set([inode]))];
+  if (!pids.length && uid !== 0) {
+    const acct = passwd().find((a) => a.uid === uid);
+    const res = spawnSync(process.execPath, [path.join(APP, "root", "find-owners.mjs"), inode], {
+      uid,
+      gid: acct ? acct.gid : uid,
+      cwd: "/",
+      env: { PATH: "/usr/bin:/bin" },
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    try {
+      pids = JSON.parse(res.stdout);
+    } catch {
+      pids = [];
+    }
+  }
+  return pids.filter((pid) => Number.isInteger(pid) && uidOf(pid) === uid);
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The processes to keep running. Engine services join this list as their adapters land. */
+export function services() {
+  return [
+    {
+      name: "server",
+      user: "agentsim",
+      cmd: process.execPath,
+      args: [path.join(APP, "server", "index.mjs")],
+      env: {
+        PORT: "3000",
+        IS_PRODUCTION: "true",
+        POLICY_PATH: POLICY,
+        EVENTS_DIR,
+        DIST_DIR: path.join(APP, "dist"),
+      },
+      port: 3000,
+    },
+  ];
+}
+
+function start(svc) {
+  const acct = account(svc.user);
+  const out = fs.openSync(`${LOG_DIR}/${svc.name}.log`, "a");
+  const child = spawn(svc.cmd, svc.args, {
+    uid: acct.uid,
+    gid: acct.gid,
+    cwd: acct.home,
+    env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: acct.home, USER: svc.user, LANG: "C.UTF-8", ...svc.env },
+    stdio: ["ignore", out, out],
+    detached: true, // own process group, so a restart takes its children down too
+  });
+  fs.closeSync(out);
+  svc.child = child;
+  svc.startedAt = Date.now();
+  log("start", { service: svc.name, pid: child.pid });
+  child.on("exit", (code, signal) => {
+    log("exit", { service: svc.name, pid: child.pid, code, signal });
+    svc.child = null;
+    checkPorts([svc]); // a crash right after start is often a taken port
+    const ranFor = Date.now() - svc.startedAt;
+    svc.backoff = ranFor > 30_000 ? 1000 : Math.min((svc.backoff || 500) * 2, MAX_BACKOFF_MS);
+    setTimeout(() => start(svc), svc.backoff);
+  });
+}
+
+// Any listener on a supervised port that is not our child (or its descendant) is an impostor,
+// including while our child is down: that is exactly when one can grab the port.
+function checkPorts(list) {
+  for (const svc of list) {
+    if (!svc.port) continue;
+    const owner = svc.child?.pid;
+    const ownerUid = account(svc.user).uid;
+    for (const { inode, uid } of listeningSockets(readTables(), svc.port)) {
+      for (const pid of socketOwners(inode, uid)) {
+        if (owner && uid === ownerUid && descendsFrom(pid, owner)) continue;
+        log("tamper", { service: svc.name, port: svc.port, impostor: pid, uid });
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  }
+}
+
+function run() {
+  if (process.getuid() !== 0) throw new Error("the supervisor must run as root");
+  if (!fs.existsSync(MARKER) || !fs.existsSync(POLICY)) throw new Error("no applied policy; run apply-policy first");
+  for (const dir of [RUN_DIR, LOG_DIR, STATE_DIR]) fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  const sim = account("agentsim");
+  fs.mkdirSync(EVENTS_DIR, { recursive: true, mode: 0o755 });
+  fs.chownSync(EVENTS_DIR, sim.uid, sim.gid);
+  fs.writeFileSync(PID_FILE, `${process.pid}\n`);
+  const list = services();
+  list.forEach(start);
+  setInterval(() => checkPorts(list), CHECK_MS);
+  const stop = () => {
+    for (const svc of list) if (svc.child) try { process.kill(-svc.child.pid, "SIGTERM"); } catch { /* gone */ }
+    process.exit(0);
+  };
+  process.on("SIGTERM", stop);
+  process.on("SIGINT", stop);
+}
+
+function daemonize() {
+  const pid = Number(fs.existsSync(PID_FILE) ? fs.readFileSync(PID_FILE, "utf8") : 0);
+  if (pid && alive(pid)) {
+    console.log(`supervisor already running (pid ${pid})`);
+    return;
+  }
+  fs.mkdirSync(LOG_DIR, { recursive: true, mode: 0o755 });
+  const out = fs.openSync(`${LOG_DIR}/supervisor.log`, "a");
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+    detached: true,
+    stdio: ["ignore", out, out],
+    env: process.env,
+  });
+  child.unref();
+  console.log(`supervisor started (pid ${child.pid})`);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  if (process.argv.includes("--daemon")) daemonize();
+  else run();
+}

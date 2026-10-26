@@ -1,0 +1,8 @@
+#!/bin/sh
+# sudo entry point. Starts the root supervisor in the background; the proxy credentials are
+# passed on for the engines, nothing else from the caller's environment.
+[ "$#" -eq 0 ] || { echo "usage: agentsim-start" >&2; exit 64; }
+exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
+  OPENAI_API_KEY="${OPENAI_API_KEY:-}" OPENAI_BASE_URL="${OPENAI_BASE_URL:-}" \
+  ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-}" \
+  /usr/bin/node /opt/agentsim/root/supervisor.mjs --daemon

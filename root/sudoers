@@ -1,0 +1,4 @@
+# /etc/sudoers.d/agentsim (0440, root). The session user may run exactly these two helpers.
+Defaults!/opt/agentsim/bin/apply-policy env_keep += "OPENAI_BASE_URL ANTHROPIC_BASE_URL"
+Defaults!/opt/agentsim/bin/agentsim-start env_keep += "OPENAI_API_KEY OPENAI_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_BASE_URL"
+runner ALL=(root) NOPASSWD: /opt/agentsim/bin/apply-policy, /opt/agentsim/bin/agentsim-start

@@ -1,0 +1,7 @@
+#!/bin/sh
+# sudo entry point. A clean environment: only the proxy route and the caller's identity reach
+# the helper (NODE_OPTIONS and friends never do).
+exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
+  OPENAI_BASE_URL="${OPENAI_BASE_URL:-}" ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-}" \
+  SUDO_USER="${SUDO_USER:-}" SUDO_UID="${SUDO_UID:-}" \
+  /usr/bin/node /opt/agentsim/root/apply-policy.mjs "$@"

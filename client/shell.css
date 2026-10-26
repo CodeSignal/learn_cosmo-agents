@@ -1,0 +1,66 @@
+/* Shell around the agent UIs: header switcher and the stage the active agent fills. */
+.bespoke {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  margin: 0;
+  background: var(--Colors-Backgrounds-Main-Default);
+}
+
+.header h1 {
+  white-space: nowrap;
+}
+
+.header .agent-switcher {
+  flex: 0 0 220px;
+  width: 220px;
+  margin-left: var(--UI-Spacing-spacing-ml);
+}
+
+.agent-status {
+  margin-left: var(--UI-Spacing-spacing-s);
+  white-space: nowrap;
+}
+
+.agent-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.agent-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.agent-frame[hidden] {
+  display: none;
+}
+
+.stage-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--UI-Spacing-spacing-xl);
+}
+
+.stage-message[hidden] {
+  display: none;
+}
+
+.stage-message .stage-card {
+  flex: 0 0 auto;
+  align-self: center;
+  height: auto;
+  max-width: 480px;
+  text-align: center;
+}
+
+.agent-label {
+  color: var(--Colors-Text-Body-Strong);
+}
