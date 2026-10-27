@@ -6,6 +6,7 @@ import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { soon } from "./chrome"
 import { runSlash, slashCommands, type SlashCommand } from "../commands"
+import { rewindable } from "./transcript"
 import {
   activeSession,
   configure,
@@ -16,7 +17,9 @@ import {
   interrupt,
   queue,
   requestFor,
+  rewindTo,
   send,
+  setComposerText,
   state,
   WORKSPACE,
   type Effort,
@@ -325,12 +328,39 @@ export function Composer() {
     if (e.key === "Escape") return (setTrigger(null), true)
     return false
   }
+  // A rewound message comes back here to edit and send again.
+  createEffect(
+    on(
+      () => state.composerText,
+      (value) => {
+        if (value === null) return
+        setText(value)
+        setComposerText(null)
+        queueMicrotask(() => {
+          input.style.height = "auto"
+          input.style.height = `${Math.min(input.scrollHeight, 240)}px`
+          input.focus()
+          input.setSelectionRange(value.length, value.length)
+        })
+      },
+    ),
+  )
   // Esc stops Claude, unless a card (permission, plan, question) is waiting: then it's the card's.
+  // While idle, Esc twice rewinds to the last message.
+  let lastEscape = 0
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && working() && !waiting() && !e.defaultPrevented) {
+    if (e.key !== "Escape" || e.defaultPrevented || waiting()) return
+    if (working()) {
       e.preventDefault()
-      void interrupt()
+      return void interrupt()
     }
+    const s = session()
+    if (!s || state.palette || document.querySelector("[role=menu], [role=dialog]")) return
+    const now = Date.now()
+    if (now - lastEscape > 600) return void (lastEscape = now)
+    lastEscape = 0
+    const last = rewindable(s.messages).at(-1)
+    if (last?.uuid) (e.preventDefault(), void rewindTo(s.id, last.uuid))
   }
   document.addEventListener("keydown", onKey)
   onCleanup(() => document.removeEventListener("keydown", onKey))

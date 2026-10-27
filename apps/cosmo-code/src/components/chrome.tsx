@@ -18,6 +18,7 @@ import {
   sessionOrder,
   showToast,
   state,
+  togglePane,
   toggleRail,
   toggleSidebar,
   WORKSPACE,
@@ -122,14 +123,14 @@ export function TitleBar() {
       </div>
       <div class="cc-titlebar-right">
         <Show when={session()}>
-          <Toggle icon="rail" label="Session rail" pressed={state.rail && !state.plan} onClick={toggleRail} />
+          <Toggle icon="rail" label="Session rail" pressed={state.rail && !state.pane} onClick={toggleRail} />
         </Show>
-        <Toggle icon="terminal" label="Terminal" shortcut="Control+`" />
+        <Toggle icon="terminal" label="Terminal" shortcut="Control+`" pressed={state.pane === "terminal"} onClick={() => togglePane("terminal")} />
         <Show when={session()}>
-          <Toggle icon="changes" label="Changes" shortcut="Control+Shift+D" />
+          <Toggle icon="changes" label="Changes" shortcut="Control+Shift+D" pressed={state.pane === "changes"} onClick={() => togglePane("changes")} />
           <Toggle icon="play" label="Preview" shortcut="Control+Shift+P" />
         </Show>
-        <Toggle icon="folder" label="Files" shortcut="Control+Shift+F" />
+        <Toggle icon="folder" label="Files" shortcut="Control+Shift+F" pressed={state.pane === "files"} onClick={() => togglePane("files")} />
         <Show when={session()}>
           <Toggle icon="moreVertical" label="View options" />
         </Show>

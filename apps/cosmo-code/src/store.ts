@@ -5,6 +5,7 @@ import { createStore, produce } from "solid-js/store"
 import { call, EngineError, listen, respond, type EngineMessage } from "./engine"
 
 export const WORKSPACE = import.meta.env.VITE_WORKSPACE ?? "/usercode/FILESYSTEM"
+export type Pane = "plan" | "changes" | "terminal" | "files"
 export const FOLDER = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
 
 export type Mode = "default" | "acceptEdits" | "plan"
@@ -30,6 +31,8 @@ export type Session = {
   /** How the last turn ended: "interrupted" when stopped. */
   ended: "done" | "interrupted" | "error" | null
   context: { percentage: number; totalTokens: number; maxTokens: number } | null
+  /** After "Rewind to here": the message the conversation was cut before (Undo brings it back). */
+  rewound: string | null
 }
 
 export type Command = { name: string; description: string; argumentHint?: string }
@@ -48,8 +51,20 @@ const [state, setState] = createStore({
   queued: {} as Record<string, string[]>,
   sidebar: true,
   rail: true,
-  /** The plan shown in the Plan pane, if open. */
+  /** The plan shown in the Plan pane. */
   plan: null as string | null,
+  /** The pane in the right column (else the session rail), and whether it fills the window. */
+  pane: null as Pane | null,
+  paneExpanded: false,
+  /** Files open in the Files pane, and the one shown. */
+  openFiles: [] as string[],
+  openFile: null as string | null,
+  /** Bumped after each turn and rewind: the Changes pane reloads. */
+  changesVersion: 0,
+  /** Text for the composer (a rewound message comes back to it). */
+  composerText: null as string | null,
+  /** Whether the task gives the candidate a terminal (the server's /api/session). */
+  terminal: false,
   /** The command palette (Ctrl+K): closed, or showing recents or actions. */
   palette: null as "recents" | "actions" | null,
   /** Next-step boxes the candidate dismissed, by the tool call that filled them. */
@@ -104,6 +119,7 @@ const blankSession = (id: string, title: string): Session => ({
   effort: null,
   ended: null,
   context: null,
+  rewound: null,
 })
 
 // ── engine events ──────────────────────────────────────────────────────────────────────────
@@ -131,6 +147,10 @@ function onMessage(msg: EngineMessage) {
       return setState("requests", produce((r) => delete r[String(p.id)]))
     case "session/message":
       return onSdkMessage(p.sessionId, p.message)
+    case "terminal/output":
+      return toTerminal(p.id, { data: Uint8Array.from(atob(p.data), (c) => c.charCodeAt(0)) })
+    case "terminal/exit":
+      return toTerminal(p.id, { exit: p.code })
   }
 }
 
@@ -186,8 +206,10 @@ function onSdkMessage(sessionId: string, m: any) {
   }
 }
 
-/** After a turn: the context ring, the session's title, and the next queued prompt. */
+/** After a turn: the context ring, the session's title, changes, and the next queued prompt. */
 async function afterTurn(sessionId: string) {
+  setState("changesVersion", (v) => v + 1)
+  void settleIds(sessionId)
   void refreshContext(sessionId)
   void refreshSessions()
   const next = state.queued[sessionId]?.[0]
@@ -197,8 +219,66 @@ async function afterTurn(sessionId: string) {
   }
 }
 
+const promptOf = (m: RawMessage) => {
+  const content = m.message?.content
+  if (typeof content === "string") return content
+  if (!Array.isArray(content) || content.some((b: any) => b.type === "tool_result")) return null
+  return content.map((b: any) => (b.type === "text" ? b.text : "")).join("")
+}
+
+/** Prompts sent here show at once, without the engine's ids; once the turn is over they take the ids
+ * the engine stored them under (Rewind to here and Fork from here need them). */
+async function settleIds(sessionId: string) {
+  if (!state.sessions[sessionId]?.messages.some((m) => m.local)) return
+  try {
+    const { messages } = await call<{ messages: RawMessage[] }>("session/read", { sessionId })
+    const stored = messages.filter((m) => m.type === "user" && m.uuid && promptOf(m) !== null)
+    setState(
+      "sessions",
+      sessionId,
+      "messages",
+      produce((list) => {
+        const taken = new Set(list.map((m) => m.uuid).filter(Boolean))
+        for (const m of list) {
+          if (!m.local) continue
+          const text = promptOf(m) ?? ""
+          const match = stored.find((x) => !taken.has(x.uuid) && promptOf(x)!.includes(text))
+          if (!match) continue
+          taken.add(match.uuid)
+          m.uuid = match.uuid
+          delete m.local
+        }
+      }),
+    )
+  } catch {
+    /* they stay without ids until the session is opened again */
+  }
+}
+
 export function start() {
   listen(onMessage)
+  void fetch("/api/session")
+    .then((res) => (res.ok ? res.json() : undefined))
+    .then((session) => setState("terminal", !!session?.terminal && session.terminal !== "off"))
+    .catch(() => setState("terminal", false))
+}
+
+// Terminal output arrives as notifications; each terminal listens for its own.
+// Output that arrives before its terminal listens (right after terminal/open) waits for it.
+type TerminalEvent = { data?: Uint8Array; exit?: number | null }
+const terminalSinks = new Map<string, (event: TerminalEvent) => void>()
+const terminalEarly = new Map<string, TerminalEvent[]>()
+export function onTerminal(id: string, sink: (event: TerminalEvent) => void) {
+  terminalSinks.set(id, sink)
+  for (const event of terminalEarly.get(id) ?? []) sink(event)
+  terminalEarly.delete(id)
+  return () => terminalSinks.delete(id)
+}
+function toTerminal(id: string, event: TerminalEvent) {
+  const sink = terminalSinks.get(id)
+  if (sink) return sink(event)
+  if (!terminalEarly.has(id) && terminalEarly.size > 16) return
+  terminalEarly.set(id, [...(terminalEarly.get(id) ?? []), event])
 }
 
 // ── calls ──────────────────────────────────────────────────────────────────────────────────
@@ -232,12 +312,12 @@ export async function refreshSessions() {
 }
 
 export async function openSession(id: string) {
-  setState({ activeId: id, plan: null })
+  setState({ activeId: id, plan: null, pane: state.pane === "plan" ? null : state.pane })
   const s = state.sessions[id]
   if (!s || s.loaded) return
   try {
-    const { messages } = await call<{ messages: RawMessage[] }>("session/read", { sessionId: id })
-    setState("sessions", id, { messages: messages.filter((m) => m.type !== "system"), loaded: true })
+    const { messages, rewound } = await call<{ messages: RawMessage[]; rewound?: { userMessageId: string } }>("session/read", { sessionId: id })
+    setState("sessions", id, { messages: messages.filter((m) => m.type !== "system"), loaded: true, rewound: rewound?.userMessageId ?? null })
     void refreshContext(id)
   } catch (error) {
     report(error)
@@ -245,7 +325,7 @@ export async function openSession(id: string) {
 }
 
 export function newSession() {
-  setState({ activeId: null, plan: null })
+  setState({ activeId: null, plan: null, pane: state.pane === "plan" ? null : state.pane })
 }
 
 async function refreshContext(sessionId: string) {
@@ -288,6 +368,7 @@ export async function send(text: string) {
         x.messages.push({ type: "user", message: { role: "user", content: text }, local: true })
         x.state = "running"
         x.ended = null
+        x.rewound = null
       }),
     )
     await call("session/send", { sessionId: s.id, text })
@@ -377,12 +458,75 @@ export function toggleSidebar() {
   setState("sidebar", (v) => !v)
 }
 
+/** The rail shares the right column with the panes: it shows when no pane is open. */
 export function toggleRail() {
-  setState("rail", (v) => !v)
+  if (state.pane) setState({ pane: null, paneExpanded: false, rail: true })
+  else setState("rail", (v) => !v)
 }
 
 export function showPlan(plan: string | null) {
-  setState("plan", plan)
+  setState({ plan, pane: plan === null ? null : "plan" })
+}
+
+/** Open a pane in the right column, or close it if it's the one open. */
+export function togglePane(pane: Pane) {
+  setState({ pane: state.pane === pane ? null : pane, paneExpanded: false })
+}
+
+export function closePane() {
+  setState({ pane: null, paneExpanded: false })
+}
+
+export function toggleExpanded() {
+  setState("paneExpanded", (v) => !v)
+}
+
+/** Open a workspace file (relative path) in the Files pane. */
+export function openFileInPane(path: string) {
+  setState({ pane: "files", openFile: path, openFiles: state.openFiles.includes(path) ? state.openFiles : [...state.openFiles, path] })
+}
+
+export function closeFile(path: string) {
+  const rest = state.openFiles.filter((f) => f !== path)
+  setState({ openFiles: rest, openFile: state.openFile === path ? (rest.at(-1) ?? null) : state.openFile })
+}
+
+export function setComposerText(text: string | null) {
+  setState("composerText", text)
+}
+
+/** Rewind to before a message: its files go back, it and what followed leave the conversation,
+ * and its text returns to the composer. */
+export async function rewindTo(sessionId: string, userMessageId: string) {
+  try {
+    const { text, files } = await call<{ text: string; files: { canRewind: boolean; error?: string } }>("session/rewind", { sessionId, userMessageId })
+    setState(
+      "sessions",
+      sessionId,
+      produce((s) => {
+        const at = s.messages.findIndex((m) => m.uuid === userMessageId)
+        if (at >= 0) s.messages = s.messages.slice(0, at)
+        s.rewound = userMessageId
+        s.ended = null
+      }),
+    )
+    setState("changesVersion", (v) => v + 1)
+    setComposerText(text)
+    if (files && !files.canRewind && files.error) showToast(`Files weren't rewound: ${files.error}`)
+  } catch (error) {
+    report(error)
+  }
+}
+
+/** Bring back the messages a rewind removed; the files stay as they are. */
+export async function undoRewind(sessionId: string) {
+  try {
+    await call("session/undoRewind", { sessionId })
+    setState("sessions", sessionId, { loaded: false, rewound: null })
+    await openSession(sessionId)
+  } catch (error) {
+    report(error)
+  }
 }
 
 export async function copy(text: string, what: string) {

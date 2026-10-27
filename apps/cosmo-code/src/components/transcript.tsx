@@ -1,12 +1,13 @@
-// The transcript: "Started on this computer", user bubbles (hover: Copy, Fork from here), replies
-// as markdown (hover: Copy, Fork from here), tool rows labelled by what they do (expand for the
-// command and output, or the edit's diff), thinking rows, then the reply streaming in, the card
-// the engine is waiting on, and the working indicator.
+// The transcript: "Started on this computer", user bubbles (hover: Copy, Rewind to here, Fork from
+// here), replies as markdown (hover: Copy, Fork from here), tool rows labelled by what they do
+// (expand for the command and output, or the edit's diff; a file opens in the Files pane), thinking
+// rows, then the reply streaming in, the card the engine is waiting on, and the working indicator.
+// After a rewind, "Rewound here · Undo rewind" ends the conversation until the next message.
 import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { structuredPatch } from "diff"
 import { Icon } from "../icons"
-import { copy, dismiss, fork, FOLDER, requestFor, send, state, type RawMessage, type Session } from "../store"
+import { copy, dismiss, fork, FOLDER, openFileInPane, requestFor, rewindTo, send, state, undoRewind, WORKSPACE, type RawMessage, type Session } from "../store"
 import { editStats, isEdit, outcome, resultText, rowLabel, type ToolResult, type ToolUse } from "../tools"
 import { RequestCard } from "./cards"
 
@@ -70,12 +71,28 @@ function flatten(messages: RawMessage[]) {
   return { items, results, ...latest }
 }
 
-function MessageActions(props: { text: string; uuid?: string; sessionId: string; what: string }) {
+/** The messages that can be rewound to: every prompt but the first (that would leave nothing). */
+export function rewindable(messages: RawMessage[]) {
+  return flatten(messages).items.filter((i): i is Extract<Item, { kind: "user" }> => i.kind === "user").slice(1)
+}
+
+function MessageActions(props: { text: string; uuid?: string; sessionId: string; what: string; rewind?: boolean }) {
   return (
     <div class="cc-msg-actions" role="toolbar" aria-label="Message actions">
       <button class="cc-icon-btn cc-small" aria-label="Copy" onClick={() => void copy(props.text, props.what)}>
         <Icon name="copy" size={14} />
       </button>
+      <Show when={props.rewind}>
+        <button
+          class="cc-icon-btn cc-small"
+          aria-label="Rewind to here"
+          title="Removes this message and everything after it."
+          disabled={!props.uuid || state.sessions[props.sessionId]?.state === "running"}
+          onClick={() => void rewindTo(props.sessionId, props.uuid!)}
+        >
+          <Icon name="rewind" size={14} />
+        </button>
+      </Show>
       <button
         class="cc-icon-btn cc-small"
         aria-label="Fork from here"
@@ -125,6 +142,12 @@ function DiffView(props: { tool: ToolUse }) {
   )
 }
 
+/** A tool's file as a workspace path, when it's in the workspace (it then opens in the Files pane). */
+function workspaceFile(tool: ToolUse) {
+  const path = String(tool.input?.file_path ?? tool.input?.notebook_path ?? "")
+  return path.startsWith(`${WORKSPACE}/`) ? path.slice(WORKSPACE.length + 1) : undefined
+}
+
 function ToolRow(props: { tool: ToolUse; result?: ToolResult }) {
   const [open, setOpen] = createSignal(false)
   const label = () => rowLabel(props.tool, props.result)
@@ -132,28 +155,40 @@ function ToolRow(props: { tool: ToolUse; result?: ToolResult }) {
   const end = () => outcome(props.tool, props.result)
   const stats = () => (isEdit(props.tool.name) ? editStats(props.tool) : null)
   const output = () => resultText(props.result)
+  const file = () => workspaceFile(props.tool)
+  const toggle = () => setOpen((v) => !v)
+  // A file's name opens it; the rest of the row expands it.
   return (
     <section class="cc-tool" aria-label={done() ? label().done : label().running}>
-      <button class="cc-tool-row" aria-expanded={open()} onClick={() => setOpen((v) => !v)}>
-        <Show when={!done()}>
-          <span class="cc-dots" aria-label="running" />
+      <div class="cc-tool-head">
+        <button class="cc-tool-row" aria-expanded={open()} onClick={toggle}>
+          <Show when={!done()}>
+            <span class="cc-dots" aria-label="running" />
+          </Show>
+          <span class="cc-tool-label">{done() ? label().done : label().running}</span>
+          <Show when={label().target && !file()}>
+            <span class="cc-tool-target">{label().target}</span>
+          </Show>
+        </button>
+        <Show when={file()}>
+          <button class="cc-tool-target cc-file-link" title={`Open ${file()}`} onClick={() => openFileInPane(file()!)}>
+            {label().target}
+          </button>
         </Show>
-        <span class="cc-tool-label">{done() ? label().done : label().running}</span>
-        <Show when={label().target}>
-          <span class="cc-tool-target">{label().target}</span>
-        </Show>
-        <Show when={stats()}>
-          {(s) => (
-            <span class="cc-stat">
-              <span class="cc-add">+{s().add}</span> <span class="cc-del">−{s().del}</span>
-            </span>
-          )}
-        </Show>
-        <Show when={end()}>
-          {(e) => <span class="cc-tool-end" data-kind={e()}>{e() === "blocked" ? "Blocked" : e() === "denied" ? "Denied" : "Failed"}</span>}
-        </Show>
-        <Icon name={open() ? "chevronDown" : "chevronRight"} size={13} />
-      </button>
+        <button class="cc-tool-row" tabIndex={-1} aria-hidden="true" onClick={toggle}>
+          <Show when={stats()}>
+            {(s) => (
+              <span class="cc-stat">
+                <span class="cc-add">+{s().add}</span> <span class="cc-del">−{s().del}</span>
+              </span>
+            )}
+          </Show>
+          <Show when={end()}>
+            {(e) => <span class="cc-tool-end" data-kind={e()}>{e() === "blocked" ? "Blocked" : e() === "denied" ? "Denied" : "Failed"}</span>}
+          </Show>
+          <Icon name={open() ? "chevronDown" : "chevronRight"} size={13} />
+        </button>
+      </div>
       <Show when={open()}>
         <div class="cc-tool-body">
           <Switch fallback={<pre class="cc-output">{JSON.stringify(props.tool.input, null, 2)}{output() ? `\n\n${output()}` : ""}</pre>}>
@@ -215,6 +250,7 @@ function AnsweredQuestions(props: { tool: ToolUse; result?: ToolResult }) {
 
 export function Transcript(props: { session: Session }) {
   const flat = createMemo(() => flatten(props.session.messages))
+  const firstUser = () => flat().items.find((i) => i.kind === "user")
   const request = () => requestFor(props.session.id)
   const working = () => props.session.state === "running"
   // The next-step box shows once the turn is over, until dismissed or the next message.
@@ -244,7 +280,7 @@ export function Transcript(props: { session: Session }) {
                   <div class="cc-user">
                     <h2 class="cc-sr">You said: {u().text.slice(0, 200)}</h2>
                     <div class="cc-bubble">{u().text}</div>
-                    <MessageActions text={u().text} uuid={u().uuid} sessionId={props.session.id} what="Message" />
+                    <MessageActions text={u().text} uuid={u().uuid} sessionId={props.session.id} what="Message" rewind={u() !== firstUser()} />
                   </div>
                 )}
               </Match>
@@ -272,6 +308,14 @@ export function Transcript(props: { session: Session }) {
             </Switch>
           )}
         </For>
+      </Show>
+      <Show when={props.session.rewound && !working()}>
+        <p class="cc-rewound" role="status">
+          <Icon name="rewind" size={13} /> Rewound here ·{" "}
+          <button class="cc-link-btn" title="Brings back the messages this rewind removed. Your files stay as they are." onClick={() => void undoRewind(props.session.id)}>
+            Undo rewind
+          </button>
+        </p>
       </Show>
       <Show when={props.session.streaming?.text}>
         <div class="cc-reply" aria-live="polite">
