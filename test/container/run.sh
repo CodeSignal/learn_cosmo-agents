@@ -24,6 +24,10 @@ docker run -d --name "$NAME" \
   -e OPENAI_BASE_URL=http://127.0.0.1:4000/v1 -e OPENAI_API_KEY=test-key-scoped \
   -e ANTHROPIC_BASE_URL=http://127.0.0.1:4000 -e ANTHROPIC_API_KEY=test-key-scoped \
   "$IMAGE" sleep infinity >/dev/null
+# A stand-in for the LLM proxy, inside the container (keys: test-key-scoped allows Sonnet,
+# Haiku, Terra and Luna; the task narrows further).
+docker cp test/stub-gateway.mjs "$NAME":/opt/stub-gateway.mjs >/dev/null
+docker exec -d "$NAME" sh -c 'STUB_LOG=/tmp/stub.jsonl PORT=4000 node /opt/stub-gateway.mjs'
 # The platform's session user gets the proxy variables in its environment.
 as_root 'env | grep -E "^(OPENAI|ANTHROPIC)_" | sed "s/^/export /" >> /home/runner/.profile'
 R() { as_runner ". ~/.profile; $1"; }
@@ -82,6 +86,31 @@ check S14 "the session user cannot rewrite the event log" \
 check S15 "run_solution prints setup, events and supervisor log" \
   as_runner '/opt/agentsim/scripts/run_solution.sh | grep -q "## SIMULATION EVENTS" && /opt/agentsim/scripts/run_solution.sh | grep -q tamper'
 
+echo
+echo "-- OpenCosmo (OpenCode engine)"
+G=localhost:3000/engine/opencosmo
+D='directory=%2Fusercode%2FFILESYSTEM'
+sleep 2
+check O1 "opencode serve runs as the session user on loopback only" \
+  as_root '[ "$(ps -o user= -p $(pgrep -f "opencode serve" | head -1))" = runner ] && grep -q "0100007F:1000 00000000:0000 0A" /proc/net/tcp && ! grep -qE "00000000:1000 00000000:0000 0A" /proc/net/tcp'
+check O2 "the OpenCosmo UI is served" \
+  as_runner 'curl -sf localhost:3000/agents/opencosmo/ | grep -q "<div id=\"root\""'
+check O3 "the engine refuses requests without the gateway's password" \
+  as_runner '[ "$(curl -s -o /dev/null -w %{http_code} 127.0.0.1:4096/global/health)" = 401 ] && curl -sf '$G'/global/health | grep -q "\"healthy\":true"'
+check O4 "a prompt runs through the gateway and the agent's tool call lands in the workspace" \
+  as_runner 'sid=$(curl -sf -X POST "'$G'/session?'$D'" -H "content-type: application/json" -d "{}" | jq -r .id) && curl -sf -X POST "'$G'/session/$sid/message?'$D'" -H "content-type: application/json" -d "{\"parts\":[{\"type\":\"text\",\"text\":\"RUN: echo made-by-agent > made.txt\"}],\"model\":{\"providerID\":\"anthropic\",\"modelID\":\"claude-sonnet-5-5\"}}" >/dev/null && sleep 1 && grep -q made-by-agent /usercode/FILESYSTEM/made.txt'
+check R1 "a model the key allows but the task doesn't is refused by the engine (never reaches the proxy)" \
+  sh -c "docker exec -u runner $NAME sh -c 'sid=\$(curl -sf -X POST \"$G/session?$D\" -H content-type:application/json -d {} | jq -r .id); curl -s -X POST \"$G/session/\$sid/message?$D\" -H content-type:application/json -d \"{\\\"parts\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"hi\\\"}],\\\"model\\\":{\\\"providerID\\\":\\\"anthropic\\\",\\\"modelID\\\":\\\"claude-haiku-5-5\\\"}}\"' >/dev/null; sleep 1; ! docker exec $NAME grep -q claude-haiku-5-5 /tmp/stub.jsonl"
+check O5 "configuration, credentials, MCP, sharing and deleting sessions are refused and logged" \
+  as_runner 'for r in "PATCH /config" "PUT /auth/anthropic" "POST /mcp" "POST /session/x/share" "DELETE /session/x" "POST /pty"; do set -- $r; [ "$(curl -s -o /dev/null -w %{http_code} -X $1 '$G'$2 -d "{}")" = 403 ] || { echo "$r not refused"; exit 1; }; done; [ "$(grep -c "\"gateway\":\"opencode\"" /var/lib/agentsim/events/events.jsonl)" -ge 6 ]'
+check O6 "folders outside the workspace are refused" \
+  as_runner '[ "$(curl -s -o /dev/null -w %{http_code} "'$G'/file?directory=%2Fetc")" = 403 ]'
+check R6 "MCP servers and permissions from user or project config are not loaded, even after a restart" \
+  as_runner 'mkdir -p ~/.config/opencode && echo "{\"mcp\":{\"evil\":{\"type\":\"local\",\"command\":[\"sh\"]}},\"permission\":{\"webfetch\":\"allow\"}}" > ~/.config/opencode/opencode.json && cp ~/.config/opencode/opencode.json /usercode/FILESYSTEM/opencode.json && pkill -f "[o]pencode serve"; sleep 3; for i in $(seq 15); do c=$(curl -sf "'$G'/config?'$D'") && break; sleep 1; done; echo "$c" | jq -e ".mcp == {} and .permission.webfetch == \"deny\"" >/dev/null'
+check R11e "a killed engine is restarted by the supervisor" \
+  sh -c "old=\$(docker exec $NAME pgrep -f 'opencode serve' | head -1); docker exec -u runner $NAME kill \$old; sleep 4; new=\$(docker exec $NAME pgrep -f 'opencode serve' | head -1); [ -n \"\$new\" ] && [ \"\$new\" != \"\$old\" ]"
+check R11f "an engine port the agent grabs is taken back, and the engine returns locked" \
+  sh -c "docker exec -u runner $NAME pkill -f 'opencode serve'; docker exec -d -u runner $NAME python3 -m http.server --bind 127.0.0.1 4096; sleep 10; docker exec $NAME grep -q '\"type\":\"tamper\",\"service\":\"opencode\"' /var/lib/agentsim/supervisor.jsonl && [ \"\$(docker exec -u runner $NAME curl -s -o /dev/null -w %{http_code} 127.0.0.1:4096/global/health)\" = 401 ]"
 echo
 if [ "$FAILS" -eq 0 ]; then echo "all checks passed"; else echo "$FAILS check(s) failed"; fi
 [ "$KEEP" = "--keep" ] || docker rm -f "$NAME" >/dev/null
