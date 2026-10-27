@@ -41,7 +41,7 @@ The task ships `.codesignal/agent-sim.json`. A task can only narrow what
 
 ```json
 {
-  "agents": ["opencosmo", "cosmodex", "cosmo-code"],
+  "agents": ["opencosmo", "cosmo-code"],
   "default": "opencosmo",
   "allowSwitch": false,
   "terminal": "off",
