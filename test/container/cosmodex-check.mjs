@@ -1,0 +1,97 @@
+// Run inside the test container as the session user: drives the Cosmodex gateway against the
+// real `codex app-server` and prints one "PASS|FAIL <id> <description>" line per check.
+const G = "http://localhost:3000/engine/cosmodex";
+const WS = "/usercode/FILESYSTEM";
+let failed = 0;
+
+function report(id, desc, ok, detail = "") {
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${id.padEnd(4)} ${desc}${ok || !detail ? "" : `\n      ${String(detail).slice(0, 300)}`}`);
+}
+
+async function rpc(method, params) {
+  const res = await fetch(`${G}/rpc`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method, params }) });
+  return { status: res.status, body: await res.json() };
+}
+
+/** Collect SSE messages; `waitFor(pred, ms)` resolves with the first match. */
+function events() {
+  const seen = [];
+  const waiters = [];
+  const ctrl = new AbortController();
+  (async () => {
+    const res = await fetch(`${G}/events`, { signal: ctrl.signal });
+    const dec = new TextDecoder();
+    let buf = "";
+    for await (const chunk of res.body) {
+      buf += dec.decode(chunk, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        const data = block.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+        if (!data) continue;
+        const msg = JSON.parse(data);
+        seen.push(msg);
+        for (const w of [...waiters]) if (w.pred(msg)) (waiters.splice(waiters.indexOf(w), 1), w.resolve(msg));
+      }
+    }
+  })().catch(() => {});
+  return {
+    seen,
+    close: () => ctrl.abort(),
+    waitFor(pred, ms = 20000) {
+      const hit = seen.find(pred);
+      if (hit) return Promise.resolve(hit);
+      return new Promise((resolve) => {
+        const w = { pred, resolve };
+        waiters.push(w);
+        setTimeout(() => (waiters.splice(waiters.indexOf(w), 1), resolve(null)), ms);
+      });
+    },
+  };
+}
+
+const ev = events();
+const ready = await ev.waitFor((m) => m.method === "cosmodex/engine" && m.params?.state === "ready", 30000);
+report("X1", "the gateway reaches app-server and initializes it", !!ready, JSON.stringify(ev.seen.slice(-2)));
+
+const models = await rpc("model/list", {});
+const slugs = (models.body.result?.data ?? models.body.result?.models ?? []).map((m) => m.model ?? m.slug ?? m.id);
+report("X2", "model/list offers only the task's models", slugs.length > 0 && slugs.every((s) => ["gpt-5.6-terra", "gpt-6-luna"].includes(s)), JSON.stringify(models.body).slice(0, 300));
+
+const astra = await rpc("thread/start", { model: "gpt-6-astra" });
+const danger = await rpc("thread/start", { sandbox: "danger-full-access" });
+const never = await rpc("thread/start", { approvalPolicy: "never" });
+const cfg = await rpc("thread/start", { config: { model_provider: "evil" } });
+report("X3", "a model, sandbox, approval policy or config the task doesn't allow is refused",
+  [astra, danger, never, cfg].every((r) => r.status === 403 && r.body.error?.data?.blocked), JSON.stringify([astra, danger, never, cfg].map((r) => r.status)));
+
+const write = await rpc("config/value/write", { keyPath: "model", value: "gpt-6-astra" });
+const login = await rpc("account/login/start", { type: "chatgpt" });
+const unknown = await rpc("tui/everything", {});
+const outside = await rpc("fs/readFile", { path: "/etc/passwd" });
+report("X4", "config writes, sign-in and files outside the workspace are refused; unknown methods are not found",
+  write.status === 403 && login.status === 403 && outside.status === 403 && unknown.status === 404, JSON.stringify([write.status, login.status, outside.status, unknown.status]));
+
+const started = await rpc("thread/start", { model: "gpt-6-luna" });
+const thread = started.body.result?.thread;
+report("X5", "a thread starts in the workspace with the task's approval policy and sandbox",
+  thread && started.body.result?.cwd === WS && started.body.result?.approvalPolicy === "untrusted" && started.body.result?.model === "gpt-6-luna",
+  JSON.stringify(started.body).slice(0, 400));
+
+if (thread) {
+  await rpc("turn/start", { threadId: thread.id, input: [{ type: "text", text: "RUN: echo approved > cosmodex.txt", text_elements: [] }] });
+  const ask = await ev.waitFor((m) => m.id !== undefined && m.method === "item/commandExecution/requestApproval");
+  report("X6", "the agent's command waits for the candidate's approval (request reaches the browser)", !!ask, JSON.stringify(ev.seen.slice(-3)).slice(0, 300));
+  if (ask) {
+    const sneaky = await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ask.id, result: { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["echo"] } } } }) });
+    const plain = await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ask.id, result: { decision: "accept" } }) });
+    report("X7", "only plain decisions are accepted (a policy amendment is refused)", sneaky.status === 403 && plain.status === 200, `${sneaky.status} ${plain.status}`);
+    const done = await ev.waitFor((m) => m.method === "turn/completed");
+    report("X8", "the turn completes after the answer", !!done, JSON.stringify(ev.seen.slice(-3)).slice(0, 300));
+  }
+}
+
+ev.close();
+process.exit(failed ? 1 : 0);

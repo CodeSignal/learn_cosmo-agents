@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createEventLog } from "./events.mjs";
 import { createOpenCodeGateway } from "./gateways/opencode.mjs";
+import { createCodexGateway } from "./gateways/codex.mjs";
+import { codexCeilings } from "../policy/render.mjs";
 import { PINS, engineOf, validateTaskConfig } from "../policy/schema.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -99,7 +101,8 @@ export function createServer({ policy, events, gateways = {} }) {
       id,
       label: LABELS[id],
       engine: engineOf(id, PINS),
-      available: Boolean(gateways[id]),
+      // Usable once its engine gateway exists and its UI has been built.
+      available: Boolean(gateways[id]) && fs.existsSync(path.join(AGENTS_DIR, id, "index.html")),
       models: policy.models[id],
     })),
     active: state.active,
@@ -173,6 +176,15 @@ export function gatewaysFor(policy, events, env = process.env) {
       password: env.OPENCODE_SERVER_PASSWORD,
       workspace: env.WORKSPACE || "/usercode/FILESYSTEM",
       terminal: policy.terminal === "sandboxed",
+      events,
+    });
+  }
+  if (policy.agents.includes("cosmodex")) {
+    gateways.cosmodex = createCodexGateway({
+      url: env.CODEX_URL || "ws://127.0.0.1:4500",
+      workspace: env.WORKSPACE || "/usercode/FILESYSTEM",
+      terminal: policy.terminal === "sandboxed",
+      ceilings: codexCeilings(policy),
       events,
     });
   }

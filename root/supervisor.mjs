@@ -22,6 +22,7 @@ const ENGINE_ENV = "/etc/agentsim/engine-env.json";
 const SESSION_USER = "runner";
 const WORKSPACE = "/usercode/FILESYSTEM";
 const OPENCODE_PORT = 4096;
+const CODEX_PORT = 4500;
 // Proxy route and keys, handed to the engines only (never to the server).
 const PROXY_ENV = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"];
 const MARKER = `${STATE_DIR}/applied`;
@@ -124,6 +125,19 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
         ].join(" && ");
         spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
       },
+    });
+  }
+  if (policy.agents.includes("cosmodex")) {
+    serverEnv.CODEX_URL = `ws://127.0.0.1:${CODEX_PORT}`;
+    list.push({
+      name: "codex",
+      user: SESSION_USER,
+      cmd: which("codex"),
+      // Loopback only. The policy itself comes from /etc/codex/requirements.toml.
+      args: ["app-server", "--listen", `ws://127.0.0.1:${CODEX_PORT}`],
+      cwd: WORKSPACE,
+      env: { ...engineEnv.codex, ...proxy },
+      port: CODEX_PORT,
     });
   }
   list.unshift({ name: "server", user: "agentsim", cmd: process.execPath, args: [path.join(APP, "server", "index.mjs")], env: serverEnv, port: 3000 });

@@ -27,6 +27,7 @@ docker run -d --name "$NAME" \
 # A stand-in for the LLM proxy, inside the container (keys: test-key-scoped allows Sonnet,
 # Haiku, Terra and Luna; the task narrows further).
 docker cp test/stub-gateway.mjs "$NAME":/opt/stub-gateway.mjs >/dev/null
+docker cp test/container/cosmodex-check.mjs "$NAME":/opt/cosmodex-check.mjs >/dev/null
 docker exec -d "$NAME" sh -c 'STUB_LOG=/tmp/stub.jsonl PORT=4000 node /opt/stub-gateway.mjs'
 # The platform's session user gets the proxy variables in its environment.
 as_root 'env | grep -E "^(OPENAI|ANTHROPIC)_" | sed "s/^/export /" >> /home/runner/.profile'
@@ -35,7 +36,7 @@ R() { as_runner ". ~/.profile; $1"; }
 docker exec -i -u runner -w /usercode/FILESYSTEM "$NAME" sh -c 'mkdir -p .codesignal && cat > .codesignal/agent-sim.json' <<'EOF'
 { "agents": ["opencosmo", "cosmodex", "cosmo-code"], "default": "opencosmo",
   "models": { "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"] },
-              "cosmodex": { "allowed": ["gpt-5.6-terra"] },
+              "cosmodex": { "allowed": ["gpt-5.6-terra", "gpt-6-luna"] },
               "cosmo-code": { "allowed": ["claude-sonnet-5-5"] } } }
 EOF
 
@@ -48,7 +49,7 @@ check S2 "apply-policy succeeds as the session user via sudo" \
 check S3 "policy files are root-owned 0644" \
   as_root 'for f in /etc/agentsim/policy.json /etc/opencode/opencode.json /etc/codex/requirements.toml /etc/codex/models.json /etc/claude-code/managed-settings.json; do [ "$(stat -c %U:%a $f)" = root:644 ] || { echo "$f $(stat -c %U:%a $f)"; exit 1; }; done'
 check S4 "the Codex catalog was read from the installed CLI and narrowed" \
-  as_root '[ "$(jq -r "[.models[].slug]|join(\",\")" /etc/codex/models.json)" = gpt-5.6-terra ]'
+  as_root '[ "$(jq -r "[.models[].slug]|join(\",\")" /etc/codex/models.json)" = gpt-5.6-terra,gpt-6-luna ]'
 check S5 "a second apply is refused" \
   sh -c "! docker exec -u runner -w /usercode/FILESYSTEM $NAME sudo -n /opt/agentsim/bin/apply-policy --config .codesignal/agent-sim.json"
 check R10 "the session user cannot change any policy file" \
@@ -127,6 +128,15 @@ check R11e "a killed engine is restarted by the supervisor" \
   sh -c "old=\$(docker exec $NAME pgrep -f 'opencode serve' | head -1); docker exec -u runner $NAME kill \$old; sleep 4; new=\$(docker exec $NAME pgrep -f 'opencode serve' | head -1); [ -n \"\$new\" ] && [ \"\$new\" != \"\$old\" ]"
 check R11f "an engine port the agent grabs is taken back, and the engine returns locked" \
   sh -c "docker exec -u runner $NAME pkill -f 'opencode serve'; docker exec -d -u runner $NAME python3 -m http.server --bind 127.0.0.1 4096; sleep 10; docker exec $NAME grep -q '\"type\":\"tamper\",\"service\":\"opencode\"' /var/lib/agentsim/supervisor.jsonl && [ \"\$(docker exec -u runner $NAME curl -s -o /dev/null -w %{http_code} 127.0.0.1:4096/global/health)\" = 401 ]"
+echo
+echo "-- Cosmodex (Codex engine)"
+check X0 "codex app-server runs as the session user on loopback only" \
+  as_root '[ "$(ps -o user= -p $(pgrep -f "codex app-server" | head -1))" = runner ] && grep -q "0100007F:1194 00000000:0000 0A" /proc/net/tcp && ! grep -q "00000000:1194 00000000:0000 0A" /proc/net/tcp'
+out=$(docker exec -u runner "$NAME" node /opt/cosmodex-check.mjs 2>&1); echo "$out"
+FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL')))
+check X9 "Cosmodex refusals and approval answers are in the event log" \
+  as_root 'grep -q "\"gateway\":\"codex\".*\"reason\":\"configuration\"" /var/lib/agentsim/events/events.jsonl && grep -q "\"gateway\":\"codex\".*\"reply\":\"accept\"" /var/lib/agentsim/events/events.jsonl'
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "all checks passed"; else echo "$FAILS check(s) failed"; fi
 [ "$KEEP" = "--keep" ] || docker rm -f "$NAME" >/dev/null

@@ -103,13 +103,23 @@ export function claudePermissions({ preset, edit, bash }, errors) {
 /** Codex approval policies a preset allows: on-request is Codex's own default. */
 const CODEX_APPROVAL = { "engine-default": ["on-request"], ask: ["untrusted"], allow: ["never"] };
 
+/** What Codex may be asked for under this task: the requirements file and the gateway share it. */
+export function codexCeilings(config) {
+  return {
+    models: config.models.cosmodex?.allowed ?? [],
+    approvalPolicies: CODEX_APPROVAL[config.permissions.preset],
+    sandboxModes: config.sandbox ? ["read-only", "workspace-write"] : ["read-only", "workspace-write", "danger-full-access"],
+    webSearchModes: config.webTools ? ["disabled", "cached", "live"] : ["disabled"],
+  };
+}
+
 function codexRequirements(config, env, errors) {
   const baseUrl = (env.OPENAI_BASE_URL || "").trim();
   if (!baseUrl) errors.push("cosmodex is enabled but OPENAI_BASE_URL is not set");
   return {
-    allowed_approval_policies: CODEX_APPROVAL[config.permissions.preset],
-    allowed_sandbox_modes: config.sandbox ? ["read-only", "workspace-write"] : ["read-only", "workspace-write", "danger-full-access"],
-    allowed_web_search_modes: config.webTools ? ["disabled", "cached", "live"] : ["disabled"],
+    allowed_approval_policies: codexCeilings(config).approvalPolicies,
+    allowed_sandbox_modes: codexCeilings(config).sandboxModes,
+    allowed_web_search_modes: codexCeilings(config).webSearchModes,
     allowed_login_methods: ["api"],
     allow_remote_control: false,
     allow_browser_and_computer_use: false,

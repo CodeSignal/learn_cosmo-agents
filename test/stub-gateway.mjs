@@ -10,6 +10,8 @@ import crypto from "node:crypto";
 
 const PORT = Number(process.env.PORT || 4000);
 const LOG = process.env.STUB_LOG || new URL("./requests.jsonl", import.meta.url).pathname;
+// Full request bodies, for working out what a client sends (off unless set).
+const DUMP = process.env.STUB_DUMP;
 
 // key -> allowed models. "*" allows everything (control key).
 const SCOPED = ["claude-sonnet-5-5", "claude-haiku-5-5", "gpt-5.6-terra", "gpt-6-luna"];
@@ -49,7 +51,7 @@ function lastUserText(messages) {
   if (!last) return "";
   if (last.role === "tool") return null;
   if (Array.isArray(last.content) && last.content.some((c) => c.type === "tool_result" || c.type === "function_call_output")) return null;
-  if (last.type === "function_call_output") return null;
+  if (last.type === "function_call_output" || last.type === "custom_tool_call_output") return null;
   return textOf(last.content);
 }
 
@@ -117,13 +119,30 @@ function anthropic(req, res, body) {
   res.end();
 }
 
+/** Codex "code mode": tools are offered as one custom `exec` tool taking JavaScript. */
+function codeModeExec(input) {
+  for (const item of input) {
+    if (item?.type !== "additional_tools") continue;
+    for (const group of item.tools ?? []) {
+      for (const tool of group.tools ?? [group]) if (tool.type === "custom" && tool.name === "exec") return tool;
+    }
+  }
+  return null;
+}
+
 function responses(req, res, body) {
   const input = Array.isArray(body.input) ? body.input : [{ role: "user", content: body.input }];
-  const p = plan(body.model, lastUserText(input), body.tools);
+  let p = plan(body.model, lastUserText(input), body.tools);
+  const run = /RUN:\s*([\s\S]+)$/m.exec(lastUserText(input) || "");
+  if (p.kind === "text" && run && codeModeExec(input)) {
+    p = { kind: "custom", name: "exec", input: `await tools.exec_command(${JSON.stringify({ cmd: run[1].trim() })});` };
+  }
   const respId = id("resp");
   const item = p.kind === "tool"
     ? { type: "function_call", id: id("fc"), call_id: id("call"), name: p.name, arguments: JSON.stringify(p.args), status: "completed" }
-    : { type: "message", id: id("msg"), role: "assistant", status: "completed", content: [{ type: "output_text", text: p.text, annotations: [] }] };
+    : p.kind === "custom"
+      ? { type: "custom_tool_call", id: id("ctc"), call_id: id("call"), name: p.name, input: p.input, status: "completed" }
+      : { type: "message", id: id("msg"), role: "assistant", status: "completed", content: [{ type: "output_text", text: p.text, annotations: [] }] };
   const u = { input_tokens: 10, output_tokens: 5, total_tokens: 15, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } };
   const full = { id: respId, object: "response", created_at: Math.floor(Date.now() / 1000), status: "completed", model: body.model, output: [item], usage: u };
   if (!body.stream) {
@@ -135,12 +154,16 @@ function responses(req, res, body) {
   const ev = (type, extra) => send(type, { type, sequence_number: seq++, ...extra });
   ev("response.created", { response: { ...full, status: "in_progress", output: [] } });
   ev("response.in_progress", { response: { ...full, status: "in_progress", output: [] } });
-  ev("response.output_item.added", { output_index: 0, item: { ...item, status: "in_progress", ...(item.type === "message" ? { content: [] } : { arguments: "" }) } });
+  const empty = item.type === "message" ? { content: [] } : item.type === "custom_tool_call" ? { input: "" } : { arguments: "" };
+  ev("response.output_item.added", { output_index: 0, item: { ...item, status: "in_progress", ...empty } });
   if (item.type === "message") {
     ev("response.content_part.added", { item_id: item.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } });
     ev("response.output_text.delta", { item_id: item.id, output_index: 0, content_index: 0, delta: p.text });
     ev("response.output_text.done", { item_id: item.id, output_index: 0, content_index: 0, text: p.text });
     ev("response.content_part.done", { item_id: item.id, output_index: 0, content_index: 0, part: item.content[0] });
+  } else if (item.type === "custom_tool_call") {
+    ev("response.custom_tool_call_input.delta", { item_id: item.id, output_index: 0, delta: item.input });
+    ev("response.custom_tool_call_input.done", { item_id: item.id, output_index: 0, input: item.input });
   } else {
     ev("response.function_call_arguments.delta", { item_id: item.id, output_index: 0, delta: item.arguments });
     ev("response.function_call_arguments.done", { item_id: item.id, output_index: 0, arguments: item.arguments });
@@ -178,6 +201,7 @@ const server = http.createServer((req, res) => {
     let body = {};
     try { body = raw ? JSON.parse(raw) : {}; } catch { /* non-JSON */ }
     const key = keyOf(req);
+    if (DUMP && raw) fs.appendFileSync(DUMP, JSON.stringify({ url: req.url, body }) + "\n");
     const entry = { method: req.method, url: req.url, key: key ? key.slice(0, 14) : null, model: body.model ?? null, stream: !!body.stream, tools: (body.tools || []).map((t) => t.name ?? t.function?.name ?? t.type).slice(0, 40), ua: req.headers["user-agent"] };
 
     if (req.method === "GET" && path === "/models") {
