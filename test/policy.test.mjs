@@ -95,7 +95,7 @@ test("a provider without its proxy URL fails rendering (no silent bypass)", () =
 test("Codex requirements pin provider, approvals, sandbox, search and login", () => {
   const c = valid({ agents: ["cosmodex"], models: { cosmodex: { allowed: ["gpt-5.6-terra"] } } });
   const toml = file(renderPolicy(c, ENV, { codexBundledCatalog: CATALOG }), ROOT.codexRequirements);
-  assert.match(toml, /^allowed_approval_policies = \["on-request"\]$/m);
+  assert.match(toml, /^allowed_approval_policies = \["untrusted"\]$/m); // the default "ask" preset
   assert.match(toml, /^allowed_sandbox_modes = \["read-only", "workspace-write"\]$/m);
   assert.match(toml, /^allowed_web_search_modes = \["disabled"\]$/m);
   assert.match(toml, /^allowed_login_methods = \["api"\]$/m);
@@ -143,9 +143,16 @@ test("toml writer: scalars first, nested tables, quoting", () => {
   assert.equal(toToml({ a: "x", b: true, c: ["1", "2"], t: { "k.y": { n: 1 } } }), 'a = "x"\nb = true\nc = ["1", "2"]\n\n[t."k.y"]\nn = 1');
 });
 
-test("permissions default to each engine's own behaviour", () => {
-  assert.deepEqual(valid({ agents: ["opencosmo"] }).permissions, { preset: "engine-default" });
+test("permissions default to asking before every edit and shell command", () => {
+  assert.deepEqual(valid({ agents: ["opencosmo"] }).permissions, { preset: "ask" });
+  assert.deepEqual(valid({ agents: ["opencosmo"], permissions: {} }).permissions, { preset: "ask" });
   const doc = JSON.parse(file(renderPolicy(valid({ agents: ["opencosmo"] }), ENV), ROOT.opencode));
+  assert.equal(doc.permission.edit, "ask");
+  assert.equal(doc.permission.bash, "ask");
+});
+
+test("engine-default leaves edits and commands to the engine", () => {
+  const doc = JSON.parse(file(renderPolicy(valid({ agents: ["opencosmo"], permissions: { preset: "engine-default" } }), ENV), ROOT.opencode));
   assert.equal(doc.permission.edit, undefined);
   assert.equal(doc.permission.bash, undefined);
 });
@@ -182,7 +189,8 @@ test("Claude Code: ask preset lists edits and Bash under ask; allow preset under
   assert.deepEqual(ask.ask, ["Edit", "Write", "NotebookEdit", "Bash"]);
   assert.deepEqual(ask.allow, []);
   assert.deepEqual(claudeRules({ preset: "allow" }).allow, ["Edit", "Write", "NotebookEdit", "Bash"]);
-  assert.deepEqual(claudeRules({}).ask, []);
+  assert.deepEqual(claudeRules({}).ask, ["Edit", "Write", "NotebookEdit", "Bash"]);
+  assert.deepEqual(claudeRules({ preset: "engine-default" }).ask, []);
 });
 
 test("Claude Code: an allowed command under 'ask everything' relies on the default mode, not a Bash ask rule", () => {

@@ -63,7 +63,7 @@ The task ships `.codesignal/agent-sim.json`. A task can only narrow what
 | `sandbox` | `true` | Engine sandboxes for agent commands (needs user namespaces) |
 | `webTools` | `false` | Web search and fetch tools |
 | `models.<agent>.allowed` | all pinned | Models the agent may use; `default` picks the starting one |
-| `permissions.preset` | `"engine-default"` | `"engine-default"`: each engine's own behaviour; `"ask"`: approve every edit and shell command; `"allow"`: no prompts |
+| `permissions.preset` | `"ask"` | `"ask"`: approve every edit and shell command; `"engine-default"`: each engine's own behaviour; `"allow"`: no prompts |
 | `permissions.edit` | from preset | `"ask"`, `"allow"` or `"deny"` for file edits |
 | `permissions.bash` | from preset | One action for all shell commands, or `{ "<pattern>": action }` with `*` wildcards, later patterns winning |
 

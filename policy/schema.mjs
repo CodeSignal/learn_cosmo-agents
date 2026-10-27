@@ -6,8 +6,8 @@ export const PINS = JSON.parse(fs.readFileSync(new URL("./pins.json", import.met
 
 const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models", "permissions"]);
 const TERMINAL = ["off", "sandboxed"];
-// "engine-default": each engine's own out-of-the-box behaviour; "ask": approve every edit and
-// shell command; "allow": no approval prompts.
+// "ask" (the default): approve every edit and shell command; "engine-default": each engine's
+// own out-of-the-box behaviour; "allow": no approval prompts.
 export const PERMISSION_PRESETS = ["engine-default", "ask", "allow"];
 const ACTIONS = ["ask", "allow", "deny"];
 const MAX_BASH_PATTERNS = 50;
@@ -102,15 +102,15 @@ export function validateTaskConfig(raw, pins = PINS) {
  * object of command patterns ("*" wildcards, later patterns win) to actions.
  */
 function validatePermissions(raw, agents, errors) {
-  if (raw === undefined) return { preset: "engine-default" };
+  if (raw === undefined) return { preset: "ask" };
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     errors.push(`"permissions" must be an object`);
-    return { preset: "engine-default" };
+    return { preset: "ask" };
   }
   for (const key of Object.keys(raw)) {
     if (!["preset", "edit", "bash"].includes(key)) errors.push(`unknown key "permissions.${key}"`);
   }
-  const preset = raw.preset ?? "engine-default";
+  const preset = raw.preset ?? "ask";
   if (!PERMISSION_PRESETS.includes(preset)) errors.push(`"permissions.preset" must be one of: ${PERMISSION_PRESETS.join(", ")}`);
   const out = { preset };
   if (raw.edit !== undefined) {

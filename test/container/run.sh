@@ -34,7 +34,6 @@ R() { as_runner ". ~/.profile; $1"; }
 
 docker exec -i -u runner -w /usercode/FILESYSTEM "$NAME" sh -c 'mkdir -p .codesignal && cat > .codesignal/agent-sim.json' <<'EOF'
 { "agents": ["opencosmo", "cosmodex", "cosmo-code"], "default": "opencosmo",
-  "permissions": { "preset": "ask" },
   "models": { "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"] },
               "cosmodex": { "allowed": ["gpt-5.6-terra"] },
               "cosmo-code": { "allowed": ["claude-sonnet-5-5"] } } }
@@ -110,7 +109,7 @@ reply() { # reply <permission id> <once|always|reject>
 }
 p1() { sid=$(prompt "RUN: echo approved > approved.txt") && p=$(pending "$sid") && ! docker exec $NAME test -e /usercode/FILESYSTEM/approved.txt && reply "$p" once && sleep 2 && docker exec $NAME grep -q approved /usercode/FILESYSTEM/approved.txt; }
 p2() { sid=$(prompt "RUN: echo rejected > rejected.txt") && p=$(pending "$sid") && reply "$p" reject && sleep 2 && ! docker exec $NAME test -e /usercode/FILESYSTEM/rejected.txt; }
-check P1 "with the ask preset a shell command waits for the candidate's approval, then runs" p1
+check P1 "by default a shell command waits for the candidate's approval, then runs" p1
 check P2 "a rejected command does not run" p2
 check P3 "both answers are in the event log" \
   as_root '[ "$(grep -c "\"type\":\"permission-reply\"" /var/lib/agentsim/events/events.jsonl)" -ge 2 ] && grep -q "\"reply\":\"reject\"" /var/lib/agentsim/events/events.jsonl'
