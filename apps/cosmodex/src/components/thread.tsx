@@ -12,6 +12,7 @@ import { ChatActionsMenu } from "./chat-actions"
 import { ImplementPrompt, PlanCard, proposedPlan, QuestionCard, withoutPlan } from "./plan"
 import { parseDiff, totals } from "../diff"
 import type { ThreadItem } from "../protocol/v2/ThreadItem"
+import type { UserInput } from "../protocol/v2/UserInput"
 
 const [now, setNow] = createSignal(Date.now())
 setInterval(() => setNow(Date.now()), 1000)
@@ -36,6 +37,38 @@ function diffStats(diff: string) {
 }
 
 const base = (p: string) => p.split("/").pop() ?? p
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+
+/** A sent message: text with its file chips (text elements over the path), and skill chips. */
+function UserInputView(props: { input: UserInput }) {
+  const parts = () => {
+    const input = props.input
+    if (input.type !== "text") return []
+    const raw = encoder.encode(input.text)
+    const out: { text: string; chip: boolean }[] = []
+    let at = 0
+    for (const el of [...(input.text_elements ?? [])].sort((a, b) => a.byteRange.start - b.byteRange.start)) {
+      if (el.byteRange.start < at || el.byteRange.end > raw.length) continue
+      if (el.byteRange.start > at) out.push({ text: decoder.decode(raw.slice(at, el.byteRange.start)), chip: false })
+      out.push({ text: el.placeholder ?? decoder.decode(raw.slice(el.byteRange.start, el.byteRange.end)), chip: true })
+      at = el.byteRange.end
+    }
+    if (at < raw.length) out.push({ text: decoder.decode(raw.slice(at)), chip: false })
+    return out
+  }
+  return (
+    <Switch>
+      <Match when={props.input.type === "skill" && props.input}>
+        {(skill) => <span class="cx-mention cx-skill">{state.skills.find((k) => k.name === skill().name)?.interface?.displayName ?? skill().name}</span>}
+      </Match>
+      <Match when={props.input.type === "text"}>
+        <For each={parts()}>{(part) => (part.chip ? <span class="cx-mention">{part.text}</span> : part.text)}</For>
+      </Match>
+    </Switch>
+  )
+}
 
 function CommandRow(props: { item: Extract<ThreadItem, { type: "commandExecution" }> }) {
   const [open, setOpen] = createSignal(false)
@@ -93,9 +126,9 @@ function Item(props: { item: ThreadItem; streaming: boolean }) {
         {(item) => (
           <div class="cx-user">
             <div class="cx-bubble">
-              {item()
-                .content.map((c) => ("text" in c ? c.text : ""))
-                .join("\n")}
+              <For each={[...item().content].sort((a, b) => Number(b.type === "skill") - Number(a.type === "skill"))}>
+                {(input) => <UserInputView input={input} />}
+              </For>
             </div>
           </div>
         )}

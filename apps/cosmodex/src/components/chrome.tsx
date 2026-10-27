@@ -6,6 +6,7 @@ import { prefs } from "../prefs"
 import {
   archive,
   goHome,
+  openCommandMenu,
   openSettings,
   openThread,
   pin,
@@ -202,7 +203,7 @@ export function Sidebar() {
             <span class="cx-dot" />
           </Show>
         </button>
-        <button class="cx-icon-btn" aria-label="Search" onClick={soon}>
+        <button class="cx-icon-btn" aria-label="Search" onClick={() => openCommandMenu("all")}>
           <Icon name="search" />
         </button>
       </div>

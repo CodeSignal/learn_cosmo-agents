@@ -7,6 +7,7 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { Icon } from "../icons"
 import { prefs, setPref, type PrefKey } from "../prefs"
 import { call } from "../engine"
+import { ACTIONS } from "../actions"
 import type { HookMetadata } from "../protocol/v2/HookMetadata"
 import type { HooksListResponse } from "../protocol/v2/HooksListResponse"
 import { archivedThreads, goHome, openSettings, state, threadOrder, unarchive } from "../store"
@@ -407,16 +408,13 @@ function Configuration() {
   )
 }
 
-const SHORTCUTS = [
-  ["New chat", "Ctrl+N"],
-  ["Toggle sidebar", "Ctrl+Shift+S"],
-  ["Open changes", "Ctrl+Shift+G"],
-  ["Settings", "Ctrl+,"],
-  ["Rename chat", "Ctrl+Alt+R"],
-  ["Pin chat", "Ctrl+Alt+P"],
-  ["Archive chat", "Ctrl+Shift+A"],
+// The actions' shortcuts, then the composer's and approval cards' keys.
+const SHORTCUTS: [action: string, keys: string][] = [
+  ...ACTIONS.filter((a) => a.shortcut).map((a): [string, string] => [a.label, a.shortcut!]),
   ["Send message", "Enter"],
   ["New line", "Shift+Enter"],
+  ["Commands", "/"],
+  ["Add files", "@"],
   ["Allow once", "Enter"],
   ["Deny", "Esc"],
 ]

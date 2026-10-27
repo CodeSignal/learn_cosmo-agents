@@ -32,6 +32,15 @@ const PATHS = {
   diff: "M12 4v8M8 8h8M8 17h8",
   pin: "M9 4h6M10 4v6l-3 4h10l-3-4V4M12 14v6",
   archive: "M4 5h16v4H4zM5 9v10h14V9M10 13h4",
+  chat: "M12 4c4.4 0 8 3 8 7s-3.6 7-8 7c-1 0-2-.2-2.9-.5L4 19l1.3-3.6C4.5 14.2 4 12.6 4 11c0-4 3.6-7 8-7",
+  feedback: "M5 4h14v12H9l-4 4zM9 9h6M9 12h4",
+  target: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8M12 11.5v1",
+  file: "M14 3H6v18h12V7zM14 3v4h4",
+  plug: "M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4",
+  smile: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M9 14c1.5 1.5 4.5 1.5 6 0M9 9.5h.01M15 9.5h.01",
+  gauge: "M4 16a8 8 0 1 1 16 0M12 16l4-5",
+  sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
+  bolt: "M13 3L5 13h6l-1 8 8-10h-6z",
 } as const
 
 export type IconName = keyof typeof PATHS

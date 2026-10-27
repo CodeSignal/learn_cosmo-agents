@@ -8,11 +8,16 @@ import type { Model } from "./protocol/v2/Model"
 import type { ThreadStartResponse } from "./protocol/v2/ThreadStartResponse"
 import type { ThreadListResponse } from "./protocol/v2/ThreadListResponse"
 import type { ThreadResumeResponse } from "./protocol/v2/ThreadResumeResponse"
+import type { ThreadReadResponse } from "./protocol/v2/ThreadReadResponse"
 import type { ModelListResponse } from "./protocol/v2/ModelListResponse"
 import type { UserInput } from "./protocol/v2/UserInput"
 import { undoDiff } from "./diff"
 import { prefs, togglePin } from "./prefs"
 import type { ThreadForkResponse } from "./protocol/v2/ThreadForkResponse"
+import type { TextElement } from "./protocol/v2/TextElement"
+import type { ThreadTokenUsage } from "./protocol/v2/ThreadTokenUsage"
+import type { SkillMetadata } from "./protocol/v2/SkillMetadata"
+import type { SkillsListResponse } from "./protocol/v2/SkillsListResponse"
 
 export const WORKSPACE = import.meta.env.VITE_WORKSPACE ?? "/usercode/FILESYSTEM"
 export const PROJECT = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
@@ -21,6 +26,9 @@ export type TurnView = Omit<Turn, "items"> & { items: ThreadItem[]; startedAtMs:
 export type ThreadView = Thread & { loaded: TurnView[] | null }
 export type Page = "home" | "thread" | "scheduled" | "plugins" | "explore" | "settings"
 export type ChangesScope = "lastTurn" | "uncommitted" | "unstaged" | "staged"
+export type CommandTab = "all" | "actions" | "chats" | "files" | "text"
+/** What the composer sends: text with file chips (text elements), and chosen skills. */
+export type Draft = { text: string; elements: TextElement[]; skills: { name: string; path: string }[] }
 
 const [state, setState] = createStore({
   engine: "connecting" as "connecting" | "ready" | "reconnecting",
@@ -49,7 +57,14 @@ const [state, setState] = createStore({
   configWarnings: [] as string[],
   /** Chat being renamed (dialog), and follow-ups queued while a turn runs, by thread. */
   renaming: null as string | null,
-  queued: {} as Record<string, string[]>,
+  queued: {} as Record<string, Draft[]>,
+  /** Context usage per thread (thread/tokenUsage/updated), for /status. */
+  tokenUsage: {} as Record<string, ThreadTokenUsage>,
+  /** The command menu's open tab (null when closed), and the skills the engine offers. */
+  commandMenu: null as CommandTab | null,
+  skills: [] as SkillMetadata[],
+  /** Files picked this session (command menu › Files "Opened recently"), newest first. */
+  recentFiles: [] as string[],
   /** The tabs pane (right of the chat): only the Changes tab so far. */
   tabs: { open: false, scope: "lastTurn" as ChangesScope, turnId: null as string | null, wrap: false, refresh: 0 },
 })
@@ -87,6 +102,15 @@ export function turnDiff(turn: TurnView): string {
     .join("")
 }
 
+/** Reasoning effort as the original labels it ("low" → "Light"). */
+export function effortLabel(effort: string | null) {
+  if (!effort) return ""
+  const names: Record<string, string> = { none: "None", minimal: "Minimal", low: "Light", medium: "Medium", high: "High", xhigh: "Extra High" }
+  return names[effort] ?? effort[0]!.toUpperCase() + effort.slice(1)
+}
+
+/** A model's display name from the catalog. */
+export const modelName = (model: string | null) => state.models.find((m) => m.model === model)?.displayName ?? model ?? "Model"
 export const activeThread = () => (state.activeId ? state.threads[state.activeId] : undefined)
 export const threadOrder = () =>
   Object.values(state.threads)
@@ -164,6 +188,8 @@ function onMessage(msg: EngineMessage) {
       if (!state.configWarnings.includes(text)) setState("configWarnings", state.configWarnings.length, text)
       return
     }
+    case "thread/tokenUsage/updated":
+      return setState("tokenUsage", p.threadId, p.tokenUsage)
     case "thread/archived":
       return setState("threads", produce((t) => delete t[p.threadId]))
     case "turn/completed":
@@ -277,8 +303,9 @@ export async function openThread(id: string) {
  * Send a prompt: in the open thread, or in a new one from the home screen. `mode` overrides the
  * composer's plan toggle (e.g. "Implement this plan?" switches back to the default mode).
  */
-export async function send(text: string, mode: "plan" | "default" = state.planMode ? "plan" : "default") {
-  const input: UserInput[] = [{ type: "text", text, text_elements: [] }]
+export async function send(draft: string | Draft, mode: "plan" | "default" = state.planMode ? "plan" : "default") {
+  const { text, elements, skills } = typeof draft === "string" ? { text: draft, elements: [], skills: [] } : draft
+  const input: UserInput[] = [{ type: "text", text, text_elements: elements }, ...skills.map((k) => ({ type: "skill" as const, ...k }))]
   const running = state.activeId ? state.threads[state.activeId]?.loaded?.at(-1) : undefined
   if (running?.status === "inProgress") {
     // Follow-up behaviour: steer the current run, or queue for after it.
@@ -289,7 +316,7 @@ export async function send(text: string, mode: "plan" | "default" = state.planMo
         report(error)
       }
     } else {
-      setState("queued", state.activeId!, (q) => [...(q ?? []), text])
+      setState("queued", state.activeId!, (q) => [...(q ?? []), { text, elements, skills }])
     }
     return
   }
@@ -489,4 +516,39 @@ export async function copy(text: string, what: string) {
   } catch {
     showToast(`Couldn't copy the ${what.toLowerCase()}.`)
   }
+}
+
+// Command menu and composer popovers.
+
+export function openCommandMenu(tab: CommandTab = "all") {
+  setState("commandMenu", tab)
+}
+
+export function closeCommandMenu() {
+  setState("commandMenu", null)
+}
+
+export async function loadSkills() {
+  try {
+    const res = await call<SkillsListResponse>("skills/list", { cwds: [WORKSPACE] })
+    setState("skills", res.data.flatMap((entry) => entry.skills).filter((skill) => skill.enabled))
+  } catch (error) {
+    console.warn("Skills could not be listed", error)
+  }
+}
+
+/** Threads' turns, loading the ones not opened yet (for the command menu's text search). */
+export async function loadTurns(threadId: string): Promise<TurnView[]> {
+  const loaded = state.threads[threadId]?.loaded
+  if (loaded) return loaded
+  try {
+    const res = await call<ThreadReadResponse>("thread/read", { threadId, includeTurns: true })
+    return (res.thread.turns ?? []).map((t) => ({ ...t, items: t.items ?? [], startedAtMs: 0 })) as TurnView[]
+  } catch {
+    return []
+  }
+}
+
+export function rememberFile(path: string) {
+  setState("recentFiles", (files) => [path, ...files.filter((f) => f !== path)].slice(0, 10))
 }

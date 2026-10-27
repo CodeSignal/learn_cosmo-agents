@@ -6,7 +6,9 @@ import { RenameDialog } from "./components/chat-actions"
 import { SettingsNav, SettingsPage } from "./components/settings"
 import { Composer } from "./components/composer"
 import { ThreadPage } from "./components/thread"
-import { activeThread, archive, goHome, openChanges, openSettings, pin, PROJECT, startRename, state, toggleSidebar } from "./store"
+import { activeThread, PROJECT, state } from "./store"
+import { onShortcut } from "./actions"
+import { CommandMenu } from "./components/command-menu"
 
 function Mark() {
   // An orbit around a dot: Cosmodex's mark.
@@ -43,30 +45,8 @@ function EmptyPage(props: { title: string; empty: string }) {
   )
 }
 
-// Shortcuts from the original: Ctrl+Shift+G opens Changes, Ctrl+Shift+S toggles the sidebar,
-// Ctrl+, opens Settings, Ctrl+N starts a new chat; on an open chat Ctrl+Alt+R renames,
-// Ctrl+Alt+P pins and Ctrl+Shift+A archives.
-document.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey || e.metaKey)) return
-  const key = e.key.toLowerCase()
-  const thread = state.page === "thread" ? activeThread() : undefined
-  const run = (action: () => void) => {
-    e.preventDefault()
-    action()
-  }
-  if (e.shiftKey && !e.altKey) {
-    if (key === "g") run(() => openChanges(activeThread()?.loaded?.at(-1)?.id ?? null))
-    else if (key === "s") run(toggleSidebar)
-    else if (key === "a" && thread) run(() => void archive(thread.id))
-  } else if (e.altKey && !e.shiftKey && thread) {
-    // Alt changes e.key on some layouts; e.code names the physical key.
-    if (e.code === "KeyR") run(() => startRename(thread.id))
-    else if (e.code === "KeyP") run(() => pin(thread.id))
-  } else if (!e.shiftKey && !e.altKey) {
-    if (key === ",") run(() => openSettings())
-    else if (key === "n") run(goHome)
-  }
-})
+// Keyboard shortcuts run the same actions as the command menu (see actions.ts).
+document.addEventListener("keydown", onShortcut)
 
 export function App() {
   return (
@@ -100,6 +80,7 @@ export function App() {
             </Match>
           </Switch>
           <RenameDialog />
+          <CommandMenu />
           <Show when={state.toast}>
             <div class="cx-toast" role="status">
               {state.toast}

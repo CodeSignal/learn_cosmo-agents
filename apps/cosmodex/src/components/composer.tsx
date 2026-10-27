@@ -3,21 +3,11 @@
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
-import { chooseModel, PROJECT, send, setPlanMode, showToast, state, stop, type ThreadView } from "../store"
-import { prefs } from "../prefs"
+import { chooseModel, effortLabel, modelName, PROJECT, send, setPlanMode, state, stop, type ThreadView } from "../store"
+import { editor } from "../editor"
+import { PromptInput } from "./prompt-input"
 
 const LOCKED = "Disabled for this task"
-
-function effortLabel(effort: string | null) {
-  if (!effort) return ""
-  const names: Record<string, string> = { none: "None", minimal: "Minimal", low: "Light", medium: "Medium", high: "High", xhigh: "Extra High" }
-  return names[effort] ?? effort[0]!.toUpperCase() + effort.slice(1)
-}
-
-function modelLabel(model: string | null) {
-  const found = state.models.find((m) => m.model === model)
-  return found?.displayName ?? model ?? "Model"
-}
 
 function PermissionsMenu() {
   return (
@@ -55,14 +45,14 @@ function ModelPopover() {
       class="cx-model-popover"
       trigger={(open, toggle) => (
         <button class="cx-chip" aria-label="Model and effort" onClick={toggle}>
-          {open() ? "Select effort" : `${modelLabel(state.model)} ${effortLabel(state.effort)}`} <Icon name="chevronDown" size={12} />
+          {open() ? "Select effort" : `${modelName(state.model)} ${effortLabel(state.effort)}`} <Icon name="chevronDown" size={12} />
         </button>
       )}
     >
       {(close) => (
         <div class="cx-model-card">
           <div class="cx-model-effort">{effortLabel(state.effort)}</div>
-          <div class="cx-model-name">{modelLabel(state.model)}</div>
+          <div class="cx-model-name">{modelName(state.model)}</div>
           <div class="cx-effort-steps" role="radiogroup" aria-label="Power">
             <For each={current()?.supportedReasoningEfforts ?? []}>
               {(option) => (
@@ -95,16 +85,11 @@ function ModelPopover() {
 }
 
 export function Composer(props: { thread?: ThreadView }) {
-  const [text, setText] = createSignal("")
+  const [empty, setEmpty] = createSignal(true)
+  let submit = () => {}
   const running = () => props.thread?.loaded?.at(-1)?.status === "inProgress"
   const stopped = () => props.thread?.loaded?.at(-1)?.status === "interrupted"
   // While a turn runs, sending follows the Follow-up behaviour setting (queue or steer).
-  const submit = () => {
-    const value = text().trim()
-    if (!value) return
-    setText("")
-    void send(value)
-  }
   const queued = () => (props.thread ? (state.queued[props.thread.id]?.length ?? 0) : 0)
   return (
     <div class="cx-composer">
@@ -113,20 +98,10 @@ export function Composer(props: { thread?: ThreadView }) {
           <Icon name="folder" size={14} /> {PROJECT} <Icon name="chevronDown" size={12} />
         </div>
       </Show>
-      <textarea
-        class="cx-input"
-        rows={2}
+      <PromptInput
         placeholder={state.planMode ? "Describe your task to generate a plan..." : props.thread ? "Work with Cosmodex" : "Do anything"}
-        value={text()}
-        onInput={(e) => setText(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter" || e.shiftKey || e.isComposing) return
-          const withCtrl = e.ctrlKey || e.metaKey
-          if (prefs.sendShortcut === "Enter" ? !withCtrl : withCtrl) {
-            e.preventDefault()
-            submit()
-          }
-        }}
+        onEmptyChange={setEmpty}
+        submitRef={(fn) => (submit = fn)}
       />
       <div class="cx-composer-row">
         <Popover
@@ -142,7 +117,7 @@ export function Composer(props: { thread?: ThreadView }) {
               close={close}
               items={[
                 { heading: "Add" },
-                { label: "Files and folders", onSelect: () => showToast("This part of Cosmodex isn't available yet.") },
+                { label: "Files and folders", onSelect: () => editor.browseFiles() },
                 {
                   label: "Plan mode",
                   subtitle: state.planMode ? "Turn plan mode off" : "Turn plan mode on",
@@ -165,10 +140,10 @@ export function Composer(props: { thread?: ThreadView }) {
           <span class="cx-menu-subtitle">{queued()} queued</span>
         </Show>
         <Show
-          when={running() && !text().trim()}
+          when={running() && empty()}
           fallback={
-            <button class="cx-send" aria-label={stopped() && !text() ? "Resume" : "Send"} disabled={!text().trim() && !stopped()} onClick={() => (stopped() && !text().trim() ? void send("Continue") : submit())}>
-              <Icon name={stopped() && !text().trim() ? "resume" : "send"} />
+            <button class="cx-send" aria-label={stopped() && empty() ? "Resume" : "Send"} disabled={empty() && !stopped()} onClick={() => (stopped() && empty() ? void send("Continue") : submit())}>
+              <Icon name={stopped() && empty() ? "resume" : "send"} />
             </button>
           }
         >
