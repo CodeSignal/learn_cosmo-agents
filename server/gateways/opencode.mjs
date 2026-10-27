@@ -33,7 +33,9 @@ export function createOpenCodeGateway({ target, password, workspace, terminal, e
     const url = new URL(sub, "http://engine");
     const verdict = gateway.decide(method, url.pathname);
     if (!verdict.allow) return { pathname: url.pathname, reason: verdict.reason, unknown: verdict.unknown };
-    if (outside(req, url)) return { pathname: url.pathname, reason: "folders outside the task's workspace" };
+    // The folder pickers list the home folder by themselves; reads outside the workspace are
+    // refused without an event, changes are refused and logged.
+    if (outside(req, url)) return { pathname: url.pathname, reason: "folders outside the task's workspace", quiet: method === "GET" };
     return null;
   };
 

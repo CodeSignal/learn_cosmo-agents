@@ -84,7 +84,18 @@ test("folders outside the workspace are refused, by query and by header", async 
   assert.equal((await fetch(`${s.base}/file?directory=%2Fhome%2Frunner`)).status, 403);
   assert.equal((await fetch(`${s.base}/file`, { headers: { "x-opencode-directory": "/usercode/FILESYSTEM-other" } })).status, 403);
   assert.equal((await fetch(`${s.base}/file?directory=%2Fusercode%2FFILESYSTEM%2Fsrc`)).status, 200);
-  assert.equal(s.events.filter((e) => e.type === "blocked").length, 2);
+  assert.equal(s.seen.length, 1);
+});
+
+test("reads outside the workspace are not logged (the pickers do them on their own); changes are", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  await fetch(`${s.base}/find/file?directory=%2Fhome%2Frunner`);
+  assert.equal(s.events.length, 0);
+  const res = await fetch(`${s.base}/session?directory=%2Fetc`, { method: "POST", body: "{}" });
+  assert.equal(res.status, 403);
+  assert.equal(s.events.length, 1);
+  assert.equal(s.events[0].reason, "folders outside the task's workspace");
 });
 
 test("undocumented routes get a 404 and stay out of the event log", async (t) => {

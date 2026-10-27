@@ -105,6 +105,8 @@ check O5 "configuration, credentials, MCP, sharing and deleting sessions are ref
   as_runner 'for r in "PATCH /config" "PUT /auth/anthropic" "POST /mcp" "POST /session/x/share" "DELETE /session/x" "POST /pty"; do set -- $r; [ "$(curl -s -o /dev/null -w %{http_code} -X $1 '$G'$2 -d "{}")" = 403 ] || { echo "$r not refused"; exit 1; }; done; [ "$(grep -c "\"gateway\":\"opencode\"" /var/lib/agentsim/events/events.jsonl)" -ge 6 ]'
 check O6 "folders outside the workspace are refused" \
   as_runner '[ "$(curl -s -o /dev/null -w %{http_code} "'$G'/file?directory=%2Fetc")" = 403 ]'
+check O7 "the task's .codesignal folder is git-excluded and absent from the engine's file search" \
+  as_runner 'git -C /usercode/FILESYSTEM check-ignore -q .codesignal/agent-sim.json && [ "$(curl -sf "'$G'/find/file?query=agent-sim&'$D'")" = "[]" ]'
 check R6 "MCP servers and permissions from user or project config are not loaded, even after a restart" \
   as_runner 'mkdir -p ~/.config/opencode && echo "{\"mcp\":{\"evil\":{\"type\":\"local\",\"command\":[\"sh\"]}},\"permission\":{\"webfetch\":\"allow\"}}" > ~/.config/opencode/opencode.json && cp ~/.config/opencode/opencode.json /usercode/FILESYSTEM/opencode.json && pkill -f "[o]pencode serve"; sleep 3; for i in $(seq 15); do c=$(curl -sf "'$G'/config?'$D'") && break; sleep 1; done; echo "$c" | jq -e ".mcp == {} and .permission.webfetch == \"deny\"" >/dev/null'
 check R11e "a killed engine is restarted by the supervisor" \

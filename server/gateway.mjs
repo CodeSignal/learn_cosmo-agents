@@ -38,9 +38,12 @@ export class RouteGateway {
     res.end(JSON.stringify({ name: "NotFound", data: { message: "Not found" } }));
   }
 
-  /** Answer a refused request the way the UIs expect, and log it. */
-  block(res, { method, pathname, reason, agent }) {
-    this.events?.record("blocked", { gateway: this.name, agent, method, path: pathname, reason });
+  /**
+   * Answer a refused request the way the UIs expect, and log it (unless `quiet`: refusals the
+   * UI triggers on its own, which say nothing about what the candidate tried).
+   */
+  block(res, { method, pathname, reason, agent, quiet = false }) {
+    if (!quiet) this.events?.record("blocked", { gateway: this.name, agent, method, path: pathname, reason });
     res.writeHead(403, { "content-type": "application/json", "x-agentsim-blocked": "1" });
     res.end(JSON.stringify(this.blockBody(reason)));
   }

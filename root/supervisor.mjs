@@ -112,11 +112,17 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
       cwd: WORKSPACE,
       env: { ...engineEnv.opencode, ...proxy, OPENCODE_SERVER_PASSWORD: password },
       port: OPENCODE_PORT,
-      // OpenCode treats a folder without git as rooted at /, which the gateway refuses.
+      // OpenCode treats a folder without git as rooted at /, which the gateway refuses. The
+      // task's own files (.codesignal) go into the repo-local exclude list, so they stay out of
+      // OpenCode's change list and file search (cosmetic: the agent can still read them).
       prepare: () => {
-        if (fs.existsSync(path.join(WORKSPACE, ".git"))) return;
         const acct = account(SESSION_USER);
-        spawnSync("git", ["init", "-q"], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
+        const script = [
+          "[ -d .git ] || git init -q",
+          'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
+          'grep -qxF ".codesignal/" "$f" 2>/dev/null || echo ".codesignal/" >> "$f"',
+        ].join(" && ");
+        spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
       },
     });
   }
