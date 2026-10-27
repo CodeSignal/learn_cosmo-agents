@@ -10,9 +10,11 @@ import {
   FOLDER,
   fork,
   newSession,
+  openPalette,
   openSession,
   rename,
   requestFor,
+  setRenamingTitle,
   sessionOrder,
   showToast,
   state,
@@ -76,7 +78,9 @@ function Toggle(props: { icon: IconName; label: string; shortcut?: string; press
 }
 
 export function TitleBar() {
-  const [renaming, setRenaming] = createSignal(false)
+  // Renaming starts from the title, its menu, or /rename.
+  const renaming = () => state.renamingTitle
+  const setRenaming = setRenamingTitle
   const session = () => activeSession()
   return (
     <header class="cc-titlebar">
@@ -197,7 +201,7 @@ export function Sidebar() {
           <Icon name="chevronDown" size={13} />
         </button>
         <div class="cc-grow" />
-        <button class="cc-icon-btn" aria-label="Search" aria-keyshortcuts="Control+Shift+K" onClick={soon}>
+        <button class="cc-icon-btn" aria-label="Search" aria-keyshortcuts="Control+Shift+K" onClick={() => openPalette()}>
           <Icon name="search" size={16} />
         </button>
       </footer>

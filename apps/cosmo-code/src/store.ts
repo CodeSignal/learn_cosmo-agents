@@ -32,7 +32,8 @@ export type Session = {
   context: { percentage: number; totalTokens: number; maxTokens: number } | null
 }
 
-type Info = { models: ModelInfo[]; commands: { name: string; description: string }[]; modes: Mode[]; defaultMode: Mode }
+export type Command = { name: string; description: string; argumentHint?: string }
+type Info = { models: ModelInfo[]; commands: Command[]; modes: Mode[]; defaultMode: Mode }
 
 const [state, setState] = createStore({
   engine: "connecting" as "connecting" | "ready" | "reconnecting",
@@ -49,6 +50,12 @@ const [state, setState] = createStore({
   rail: true,
   /** The plan shown in the Plan pane, if open. */
   plan: null as string | null,
+  /** The command palette (Ctrl+K): closed, or showing recents or actions. */
+  palette: null as "recents" | "actions" | null,
+  /** Next-step boxes the candidate dismissed, by the tool call that filled them. */
+  dismissed: {} as Record<string, true>,
+  /** The session whose title is being renamed in the title bar (from /rename). */
+  renamingTitle: false,
   toast: null as string | null,
 })
 export { state }
@@ -385,4 +392,34 @@ export async function copy(text: string, what: string) {
   } catch {
     showToast(`Couldn't copy the ${what.toLowerCase()}.`)
   }
+}
+
+export function openPalette(mode: "recents" | "actions" = "recents") {
+  setState("palette", mode)
+}
+
+export function closePalette() {
+  setState("palette", null)
+}
+
+export function dismiss(toolUseId: string) {
+  setState("dismissed", toolUseId, true)
+}
+
+export function setRenamingTitle(on: boolean) {
+  setState("renamingTitle", on)
+}
+
+/** Workspace files matching what follows an @ (the engine host searches the workspace). */
+export async function searchFiles(query: string): Promise<string[]> {
+  try {
+    return (await call<{ files: string[] }>("files/search", { query, limit: 12 })).files
+  } catch {
+    return []
+  }
+}
+
+/** Open one of the prompt bar's menus as its shortcut would (Ctrl+Shift+M, Ctrl+Shift+I, the ring). */
+export function openMenu(menu: "mode" | "model" | "usage") {
+  queueMicrotask(() => (document.querySelector(`[data-menu="${menu}"]`) as HTMLElement | null)?.click())
 }

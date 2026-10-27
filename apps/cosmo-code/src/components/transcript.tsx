@@ -2,11 +2,11 @@
 // as markdown (hover: Copy, Fork from here), tool rows labelled by what they do (expand for the
 // command and output, or the edit's diff), thinking rows, then the reply streaming in, the card
 // the engine is waiting on, and the working indicator.
-import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
+import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { structuredPatch } from "diff"
 import { Icon } from "../icons"
-import { copy, fork, FOLDER, requestFor, state, type RawMessage, type Session } from "../store"
+import { copy, dismiss, fork, FOLDER, requestFor, send, state, type RawMessage, type Session } from "../store"
 import { editStats, isEdit, outcome, resultText, rowLabel, type ToolResult, type ToolUse } from "../tools"
 import { RequestCard } from "./cards"
 
@@ -30,9 +30,17 @@ function userText(content: unknown): string | null {
   return text || null
 }
 
+// The app's own tools (the engine host's "cosmo_turn" server) draw the task list and the next-step
+// box instead of a row.
+const APP_TOOL = "mcp__cosmo_turn__"
+type TaskItem = { content: string; status: "pending" | "in_progress" | "completed" }
+type WrapUp = { id: string; recap: string; ask?: string; actions?: { label: string; message?: string }[] }
+
 function flatten(messages: RawMessage[]) {
   const items: Item[] = []
   const results = new Map<string, ToolResult>()
+  // The latest task list and next-step box since the candidate's last message.
+  const latest: { tasks: TaskItem[] | null; wrap: WrapUp | null } = { tasks: null, wrap: null }
   messages.forEach((m, n) => {
     // Subagents' own messages belong in the subagent pane, not the main transcript.
     if (m.parent_tool_use_id) return
@@ -42,7 +50,11 @@ function flatten(messages: RawMessage[]) {
         for (const b of content) if (b?.type === "tool_result") results.set(b.tool_use_id, { content: b.content, is_error: b.is_error })
       }
       const text = userText(content)
-      if (text) items.push({ kind: "user", key: m.uuid ?? `u${n}`, text, uuid: m.uuid })
+      if (text) {
+        items.push({ kind: "user", key: m.uuid ?? `u${n}`, text, uuid: m.uuid })
+        latest.tasks = null
+        latest.wrap = null
+      }
       return
     }
     if (m.type !== "assistant" || !Array.isArray(content)) return
@@ -50,10 +62,12 @@ function flatten(messages: RawMessage[]) {
       const key = `${m.uuid ?? `a${n}`}-${i}`
       if (b.type === "text" && b.text?.trim()) items.push({ kind: "text", key, text: b.text, uuid: m.uuid })
       else if (b.type === "thinking" && b.thinking?.trim()) items.push({ kind: "thinking", key, text: b.thinking })
-      else if (b.type === "tool_use") items.push({ kind: "tool", key, tool: { id: b.id, name: b.name, input: b.input } })
+      else if (b.type === "tool_use" && b.name === `${APP_TOOL}update_plan`) latest.tasks = b.input?.items ?? null
+      else if (b.type === "tool_use" && b.name === `${APP_TOOL}wrap_up`) latest.wrap = { id: b.id, ...b.input }
+      else if (b.type === "tool_use" && !String(b.name).startsWith(APP_TOOL)) items.push({ kind: "tool", key, tool: { id: b.id, name: b.name, input: b.input } })
     })
   })
-  return { items, results }
+  return { items, results, ...latest }
 }
 
 function MessageActions(props: { text: string; uuid?: string; sessionId: string; what: string }) {
@@ -203,6 +217,11 @@ export function Transcript(props: { session: Session }) {
   const flat = createMemo(() => flatten(props.session.messages))
   const request = () => requestFor(props.session.id)
   const working = () => props.session.state === "running"
+  // The next-step box shows once the turn is over, until dismissed or the next message.
+  const nextStep = () => {
+    const wrap = flat().wrap
+    return !working() && wrap && !state.dismissed[wrap.id] ? wrap : undefined
+  }
   // The call the engine is asking about shows under its card ("Running …"), as in the original.
   const pending = () => {
     const id = request()?.params?.toolUseID
@@ -263,12 +282,14 @@ export function Transcript(props: { session: Session }) {
       <Show when={pending() && !["ExitPlanMode", "AskUserQuestion"].includes(pending()!.tool.name) && pending()}>
         {(t) => <ToolRow tool={t().tool} />}
       </Show>
+      <Show when={working() && flat().tasks}>{(tasks) => <TaskList items={tasks()} />}</Show>
       <Show when={working() && !request()}>
         <div class="cc-working">
           <span class="cc-dots" />
           <span class="cc-sr">Claude is responding</span>
         </div>
       </Show>
+      <Show when={nextStep()}>{(wrap) => <NextStep wrap={wrap()} />}</Show>
       <Show when={state.queued[props.session.id]?.length}>
         <For each={state.queued[props.session.id]}>{(text) => <div class="cc-user cc-queued"><div class="cc-bubble">{text}</div></div>}</For>
       </Show>
@@ -286,6 +307,70 @@ function ThinkingRow(props: { text: string }) {
       </button>
       <Show when={open()}>
         <div class="cc-tool-body cc-thought">{props.text}</div>
+      </Show>
+    </section>
+  )
+}
+
+/** The task list (S28): under the latest message while the turn runs. */
+function TaskList(props: { items: TaskItem[] }) {
+  const label = { completed: "Completed", in_progress: "In progress", pending: "Pending" }
+  return (
+    <ul class="cc-tasks" aria-label="Task list">
+      <For each={props.items}>
+        {(item) => (
+          <li class="cc-task" data-status={item.status}>
+            <span class="cc-task-mark" aria-label={label[item.status]} />
+            <span>{item.content}</span>
+          </li>
+        )}
+      </For>
+    </ul>
+  )
+}
+
+/** The next-step box (S29): recap, then a question with its answers; the first is primary (Ctrl+Enter). */
+function NextStep(props: { wrap: WrapUp }) {
+  const act = (a: { label: string; message?: string }) => {
+    dismiss(props.wrap.id)
+    void send(a.message?.trim() || a.label)
+  }
+  const onKey = (e: KeyboardEvent) => {
+    const prompt = document.querySelector(".cc-prompt") as HTMLTextAreaElement | null
+    const primary = props.wrap.actions?.[0]
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.shiftKey && primary && !prompt?.value.trim()) {
+      e.preventDefault()
+      e.stopPropagation()
+      act(primary)
+    }
+  }
+  document.addEventListener("keydown", onKey, true)
+  onCleanup(() => document.removeEventListener("keydown", onKey, true))
+  return (
+    <section class="cc-next" aria-label="Next step">
+      <div class="cc-next-head">
+        <p class="cc-next-recap">{props.wrap.recap}</p>
+        <button class="cc-icon-btn cc-small" aria-label="Dismiss" onClick={() => dismiss(props.wrap.id)}>
+          <Icon name="close" size={14} />
+        </button>
+      </div>
+      <Show when={props.wrap.ask}>
+        <p class="cc-next-ask">{props.wrap.ask}</p>
+      </Show>
+      <Show when={props.wrap.actions?.length}>
+        <div class="cc-next-actions">
+          <For each={props.wrap.actions}>
+            {(a, i) => (
+              <button class={`cc-btn ${i() === 0 ? "cc-primary" : ""}`} aria-keyshortcuts={i() === 0 ? "Control+Enter" : undefined} onClick={() => act(a)}>
+                {a.label}
+                <Show when={i() === 0}>
+                  <kbd>Ctrl</kbd>
+                  <kbd>⏎</kbd>
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
       </Show>
     </section>
   )

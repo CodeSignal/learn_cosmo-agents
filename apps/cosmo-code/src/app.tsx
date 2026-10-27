@@ -7,7 +7,8 @@ import { Icon } from "./icons"
 import { SessionRail, Sidebar, TitleBar } from "./components/chrome"
 import { Composer } from "./components/composer"
 import { Transcript } from "./components/transcript"
-import { activeSession, copy, newSession, showPlan, state, toggleSidebar } from "./store"
+import { Palette } from "./components/palette"
+import { activeSession, closePalette, copy, newSession, openPalette, showPlan, state, toggleSidebar } from "./store"
 
 function PlanPane() {
   return (
@@ -29,8 +30,8 @@ function PlanPane() {
   )
 }
 
-// Shortcuts from the original: Ctrl+N new session, Ctrl+B sidebar, Ctrl+\ close the pane, and
-// Ctrl+Shift+M / Ctrl+Shift+I open the mode and model menus.
+// Shortcuts from the original: Ctrl+N new session, Ctrl+B sidebar, Ctrl+\ close the pane,
+// Ctrl+K (and Ctrl+Shift+K) the command palette, Ctrl+Shift+M / Ctrl+Shift+I the mode and model menus.
 document.addEventListener("keydown", (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return
   const key = e.key.toLowerCase()
@@ -38,6 +39,7 @@ document.addEventListener("keydown", (e) => {
   if (!e.shiftKey && key === "n") (e.preventDefault(), newSession())
   else if (!e.shiftKey && key === "b") (e.preventDefault(), toggleSidebar())
   else if (!e.shiftKey && e.key === "\\" && state.plan !== null) (e.preventDefault(), showPlan(null))
+  else if (key === "k") (e.preventDefault(), state.palette ? closePalette() : openPalette())
   else if (e.shiftKey && key === "m") (e.preventDefault(), open("mode"))
   else if (e.shiftKey && key === "i") (e.preventDefault(), open("model"))
 })
@@ -80,6 +82,7 @@ export function App() {
             </Show>
           </div>
           <Composer />
+          <Palette />
           <Show when={state.toast}>
             <div class="cc-toast" role="status">
               {state.toast}

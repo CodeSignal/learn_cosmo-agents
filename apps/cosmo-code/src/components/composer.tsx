@@ -1,13 +1,16 @@
 // The composer: prompt box ("+" Add, the prompt, send / stop) and the prompt bar under it. A new
 // session's bar shows Environment, Folder, mode, model and usage; inside a session just mode,
 // model and usage. Enter sends; while Claude works, Ctrl+Enter queues for later and Esc stops.
-import { createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { soon } from "./chrome"
+import { runSlash, slashCommands, type SlashCommand } from "../commands"
 import {
   activeSession,
   configure,
+  searchFiles,
+  sessionOrder,
   currentSettings,
   FOLDER,
   interrupt,
@@ -171,7 +174,7 @@ function Usage() {
       placement="above"
       align="end"
       trigger={(_, toggle) => (
-        <button class="cc-icon-btn cc-ring" aria-label={`Usage: ${label()}`} aria-haspopup="dialog" onClick={toggle}>
+        <button class="cc-icon-btn cc-ring" aria-label={`Usage: ${label()}`} aria-haspopup="dialog" data-menu="usage" onClick={toggle}>
           <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="2" />
             <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray={`${((s()?.context?.percentage ?? 0) / 100) * 56.5} 56.5`} transform="rotate(-90 12 12)" />
@@ -192,6 +195,26 @@ function Usage() {
   )
 }
 
+/** The query's letters in bold where they match, in order (S42). */
+function highlight(text: string, query: string): JSX.Element {
+  const q = query.toLowerCase()
+  let at = 0
+  return (
+    <For each={[...text]}>
+      {(ch) => {
+        const hit = at < q.length && ch.toLowerCase() === q[at]
+        if (hit) at++
+        return hit ? <b>{ch}</b> : ch
+      }}
+    </For>
+  )
+}
+
+type Trigger = { kind: "slash"; query: string } | { kind: "mention"; query: string; start: number; end: number }
+type Row = { key: string; label: JSX.Element; hint?: string; icon?: "comment" | "file" | "code"; description?: string; locked?: string; pick: () => void }
+
+const CODE = /\.(js|mjs|cjs|ts|tsx|jsx|py|go|rs|java|rb|php|c|cc|cpp|h|cs|swift|kt|sh|css|html|json|toml|ya?ml)$/i
+
 export function Composer() {
   const [text, setText] = createSignal("")
   let input!: HTMLTextAreaElement
@@ -202,13 +225,105 @@ export function Composer() {
     if (!session()) return "Describe a task or ask a question"
     return working() ? "Enter to send, Ctrl+Enter to queue for later" : "Type / for commands"
   })
+  const clear = () => {
+    setText("")
+    input.style.height = "auto"
+    setTrigger(null)
+  }
   const submit = (later: boolean) => {
     const value = text().trim()
     if (!value) return
-    setText("")
-    input.style.height = "auto"
+    clear()
+    // "/name args": the app's own commands act here; the engine's go out as the prompt.
+    const slash = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(value)
+    const command = slash && slashCommands().find((c) => c.name === slash[1])
+    if (command && (command.run || command.locked)) return runSlash(command, slash![2] ?? "")
     if (later) queue(value)
     else void send(value)
+  }
+
+  // "/" at the start opens the commands; "@" opens files (and sessions) to mention.
+  const [trigger, setTrigger] = createSignal<Trigger | null>(null)
+  const [active, setActive] = createSignal(0)
+  const detect = () => {
+    const caret = input.selectionStart ?? input.value.length
+    const before = input.value.slice(0, caret)
+    const slash = /^\/(\S*)$/.exec(before)
+    if (slash) return setTrigger({ kind: "slash", query: slash[1]! })
+    const at = /(?:^|\s)@([^\s@]*)$/.exec(before)
+    if (at) return setTrigger({ kind: "mention", query: at[1]!, start: caret - at[1]!.length - 1, end: caret })
+    setTrigger(null)
+  }
+  const [files] = createResource(
+    () => (trigger()?.kind === "mention" ? trigger()!.query : null),
+    (query) => searchFiles(query),
+  )
+  const mention = (path: string) => {
+    const t = trigger()
+    if (t?.kind !== "mention") return
+    const v = input.value
+    const next = `${v.slice(0, t.start)}@${path} ${v.slice(t.end)}`
+    setText(next)
+    setTrigger(null)
+    queueMicrotask(() => {
+      const caret = t.start + path.length + 2
+      input.focus()
+      input.setSelectionRange(caret, caret)
+    })
+  }
+  const pickCommand = (c: SlashCommand) => {
+    // Commands that take arguments wait for them; the rest run now.
+    if (c.argumentHint && !c.run && !c.locked) {
+      setText(`/${c.name} `)
+      setTrigger(null)
+      return queueMicrotask(() => input.focus())
+    }
+    clear()
+    runSlash(c)
+  }
+  const rows = createMemo((): Row[] => {
+    const t = trigger()
+    if (!t) return []
+    const q = t.query.toLowerCase()
+    if (t.kind === "slash") {
+      const all = slashCommands().filter((c) => c.name.toLowerCase().includes(q))
+      all.sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
+      return all.map((c) => ({ key: c.name, label: c.name, description: c.description, locked: c.locked, pick: () => pickCommand(c) }))
+    }
+    const sessions = sessionOrder()
+      .filter((s) => q && s.title.toLowerCase().includes(q))
+      .slice(0, 3)
+      .map((s): Row => ({ key: `s-${s.id}`, label: highlight(s.title, q), hint: FOLDER, icon: "comment", locked: LOCKED, pick: () => {} }))
+    const found = (files() ?? []).map((f): Row => ({ key: `f-${f}`, label: highlight(f, q), icon: CODE.test(f) ? "code" : "file", pick: () => mention(f) }))
+    return [...sessions, ...found]
+  })
+  // A new query starts at the first usable row; rows that arrive later (file search) keep a usable one active.
+  createEffect(on(() => [trigger()?.kind, trigger()?.query], () => setActive(Math.max(0, rows().findIndex((r) => !r.locked)))))
+  createEffect(
+    on(rows, (r) => {
+      const current = r[active()]
+      if (!current || current.locked) setActive(Math.max(0, r.findIndex((x) => !x.locked)))
+    }),
+  )
+  // The description sits next to the active command, as a tooltip would.
+  let list: HTMLDivElement | undefined
+  const [tipTop, setTipTop] = createSignal(0)
+  const placeTip = () => {
+    const row = list?.querySelector<HTMLElement>("[data-active]")
+    if (list && row) setTipTop(list.offsetTop + row.offsetTop - list.scrollTop)
+  }
+  const menuKeys = (e: KeyboardEvent) => {
+    const n = rows().length
+    if (!trigger() || !n) return false
+    if (e.key === "ArrowDown") return (setActive((i) => (i + 1) % n), true)
+    if (e.key === "ArrowUp") return (setActive((i) => (i - 1 + n) % n), true)
+    if ((e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) || e.key === "Tab") {
+      const row = rows()[active()]
+      if (row && !row.locked) row.pick()
+      return true
+    }
+    if (e.key === "Escape") return (setTrigger(null), true)
+    return false
   }
   // Esc stops Claude, unless a card (permission, plan, question) is waiting: then it's the card's.
   const onKey = (e: KeyboardEvent) => {
@@ -222,6 +337,54 @@ export function Composer() {
   const queued = () => (session() ? (state.queued[session()!.id]?.length ?? 0) : 0)
   return (
     <div class="cc-composer">
+      <Show when={trigger() && rows().length}>
+        <div
+          class="cc-suggest"
+          ref={list}
+          data-kind={trigger()!.kind}
+          role="menu"
+          aria-label={trigger()!.kind === "slash" ? "Commands" : "Files and sessions"}
+          onMouseDown={(e) => e.preventDefault()}
+          onScroll={placeTip}
+        >
+          <For each={rows()}>
+            {(row, i) => (
+              <button
+                role="menuitem"
+                class="cc-suggest-row"
+                data-active={active() === i() ? "" : undefined}
+                data-locked={row.locked ? "" : undefined}
+                aria-disabled={!!row.locked}
+                title={row.locked ?? row.description}
+                ref={(el) =>
+                  createEffect(() => {
+                    if (active() !== i()) return
+                    el.scrollIntoView({ block: "nearest" })
+                    queueMicrotask(placeTip)
+                  })
+                }
+                onMouseMove={() => setActive(i())}
+                onClick={() => !row.locked && row.pick()}
+              >
+                <Show when={row.icon}>{(icon) => <Icon name={icon()} size={14} />}</Show>
+                <span class="cc-suggest-label">{row.label}</span>
+                <Show when={row.hint}>
+                  <span class="cc-muted cc-suggest-hint">{row.hint}</span>
+                </Show>
+                <Show when={row.locked}>
+                  <Icon name="lock" size={13} />
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
+        <Show when={trigger()!.kind === "slash" && rows()[active()]?.description}>
+          <div class="cc-suggest-tip" role="tooltip" style={{ top: `${tipTop()}px` }}>
+            {rows()[active()]!.locked ? `${rows()[active()]!.locked} · ` : ""}
+            {rows()[active()]!.description}
+          </div>
+        </Show>
+      </Show>
       <div class="cc-prompt-box">
         <Popover
           placement="above"
@@ -252,14 +415,22 @@ export function Composer() {
           aria-label="Prompt"
           aria-description={placeholder()}
           rows={1}
-          placeholder={placeholder()}
+          placeholder={trigger()?.kind === "slash" ? "" : placeholder()}
           value={text()}
           onInput={(e) => {
             setText(e.currentTarget.value)
             e.currentTarget.style.height = "auto"
             e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 240)}px`
+            detect()
           }}
+          onClick={detect}
+          onBlur={() => setTimeout(() => document.activeElement !== input && setTrigger(null), 150)}
           onKeyDown={(e) => {
+            if (menuKeys(e)) {
+              e.preventDefault()
+              e.stopPropagation()
+              return
+            }
             if (e.key !== "Enter" || e.shiftKey || e.isComposing) return
             e.preventDefault()
             submit((e.ctrlKey || e.metaKey) && working())
