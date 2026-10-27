@@ -22,9 +22,18 @@ export const METHODS = {
   "session/fork": "allow",
   "session/archive": "allow",
   "session/rewindFiles": "allow",
+  "session/rewind": "allow",
+  "session/undoRewind": "allow",
   "session/context": "allow",
   "session/close": "allow",
   "files/search": "allow",
+  "files/tree": "allow",
+  "files/read": "allow",
+  // The candidate's own shell: only when the task has a terminal.
+  "terminal/open": "terminal",
+  "terminal/write": "terminal",
+  "terminal/resize": "terminal",
+  "terminal/close": "terminal",
   // Transcripts are the task's record: the candidate can archive a session, not delete it.
   "session/delete": HISTORY,
 };
@@ -42,13 +51,27 @@ const PARAMS = {
   "session/rewindFiles": ["sessionId", "userMessageId", "dryRun"],
   "session/context": ["sessionId"],
   "session/close": ["sessionId"],
+  "session/rewind": ["sessionId", "userMessageId"],
+  "session/undoRewind": ["sessionId"],
   "files/search": ["query", "limit"],
+  "files/tree": [],
+  "files/read": ["path"],
+  "terminal/open": ["cols", "rows"],
+  "terminal/write": ["id", "data"],
+  "terminal/resize": ["id", "cols", "rows"],
+  "terminal/close": ["id"],
 };
-const REQUIRED = { sessionId: ["session/read", "session/interrupt", "session/configure", "session/rename", "session/fork", "session/archive", "session/rewindFiles", "session/context", "session/close"] };
+const REQUIRED = {
+  sessionId: ["session/read", "session/interrupt", "session/configure", "session/rename", "session/fork", "session/archive", "session/rewindFiles", "session/rewind", "session/undoRewind", "session/context", "session/close"],
+  id: ["terminal/write", "terminal/resize", "terminal/close"],
+};
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TEXT = 200_000;
+
+/** A path inside the workspace, given relative to it (no "..", not absolute). */
+const relativePath = (p) => typeof p === "string" && p.length > 0 && p.length <= 1024 && !p.startsWith("/") && !p.split("/").includes("..") && !p.includes("\0");
 
 /**
  * @param ctx  { models: model ids and aliases the task allows, modes: permission modes allowed }
@@ -62,7 +85,11 @@ export function checkParams(method, params = {}, ctx) {
   if (p.sessionId !== undefined && !ID.test(String(p.sessionId))) return { reason: "this session" };
   if (p.upToMessageId !== undefined && !ID.test(String(p.upToMessageId))) return { reason: "this message" };
   if (p.userMessageId !== undefined && !ID.test(String(p.userMessageId))) return { reason: "this message" };
-  if (method === "session/rewindFiles" && p.userMessageId === undefined) return { reason: "this message" };
+  if ((method === "session/rewindFiles" || method === "session/rewind") && p.userMessageId === undefined) return { reason: "this message" };
+  if (REQUIRED.id.includes(method) && !ID.test(String(p.id ?? ""))) return { reason: "this terminal" };
+  if (method === "files/read" && !relativePath(p.path)) return { reason: "files outside the task's workspace" };
+  if (p.data !== undefined && (typeof p.data !== "string" || p.data.length > 64 * 1024 || !/^[A-Za-z0-9+/=]*$/.test(p.data))) return { reason: "this input" };
+  for (const size of ["cols", "rows"]) if (p[size] !== undefined && !(Number.isInteger(p[size]) && p[size] >= 2 && p[size] <= 1000)) return { reason: "the terminal size" };
   if (p.model !== undefined && !ctx.models.includes(p.model)) return { reason: `the model (${String(p.model).slice(0, 40)} isn't available in this task)` };
   if (p.permissionMode !== undefined && !ctx.modes.includes(p.permissionMode)) return { reason: "the permission mode" };
   if (p.effort !== undefined && !EFFORTS.includes(p.effort)) return { reason: "the effort" };
@@ -108,7 +135,7 @@ export function checkAnswer(asked, result = {}, ctx = {}) {
  * @param url       ws://127.0.0.1:<port>/?token=<per-boot token>
  * @param ceilings  { models, modes, webTools } from policy/render.mjs claudeCeilings
  */
-export function createClaudeGateway({ url, ceilings, events, agent = "cosmo-code" }) {
+export function createClaudeGateway({ url, ceilings, terminal = false, events, agent = "cosmo-code" }) {
   const ctx = { models: [...ceilings.models], modes: [...ceilings.modes], webTools: !!ceilings.webTools };
   const handler = createJsonRpcGateway({
     name: "claude",
@@ -116,6 +143,7 @@ export function createClaudeGateway({ url, ceilings, events, agent = "cosmo-code
     url,
     handshake: { method: "initialize", params: { protocol: CLAUDE_HOST_PROTOCOL } },
     methods: METHODS,
+    terminal,
     events,
     check: async (method, params, link) => {
       // The engine names the allowed models by alias too ("default", "sonnet"); those resolve within

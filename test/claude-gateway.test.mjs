@@ -52,6 +52,19 @@ test("only the parameters a method declares pass; sessions and messages are ids"
   assert.match(reason("files/search", { query: "a", root: "/" }), /option/);
 });
 
+test("rewind, files and the terminal: ids, relative paths and sizes only", () => {
+  assert.equal(reason("session/rewind", { sessionId: SID, userMessageId: SID }), undefined);
+  assert.match(reason("session/rewind", { sessionId: SID }), /message/);
+  assert.equal(reason("files/read", { path: "src/greet.js" }), undefined);
+  for (const path of ["/etc/passwd", "../x", "a/../../b", ""]) assert.match(reason("files/read", { path }), /outside/);
+  assert.equal(reason("terminal/open", { cols: 120, rows: 30 }), undefined);
+  assert.match(reason("terminal/open", { cols: 1e6, rows: 30 }), /size/);
+  assert.match(reason("terminal/open", { cmd: "sh" }), /option/);
+  assert.match(reason("terminal/write", { id: "x", data: "aGk=" }), /terminal/);
+  assert.match(reason("terminal/write", { id: SID, data: "not base64!" }), /input/);
+  assert.equal(METHODS["terminal/open"], "terminal");
+});
+
 test("answers: allow or deny; always-allow only the rule the engine suggested; edited input only for questions", () => {
   const bash = {
     method: "session/permission",

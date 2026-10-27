@@ -156,7 +156,15 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
       cmd: process.execPath,
       args: [path.join(APP, "engines", "claude-host", "host.mjs")],
       cwd: WORKSPACE,
-      env: { ...engineEnv.claude, ...proxy, COSMO_CODE_PORT: String(CLAUDE_PORT), COSMO_CODE_TOKEN: hostToken, WORKSPACE, CLAUDE_BIN: which("claude") },
+      env: {
+        ...engineEnv.claude,
+        ...proxy,
+        COSMO_CODE_PORT: String(CLAUDE_PORT),
+        COSMO_CODE_TOKEN: hostToken,
+        COSMO_CODE_TERMINAL: policy.terminal,
+        WORKSPACE,
+        CLAUDE_BIN: which("claude"),
+      },
       port: CLAUDE_PORT,
       // The Changes pane needs a git repository, as in the original.
       prepare: gitWorkspace,

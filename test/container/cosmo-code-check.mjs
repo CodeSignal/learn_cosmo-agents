@@ -120,5 +120,42 @@ const asked = ev.seen.some((m) => m.method === "session/permission" && m.params?
 const shown = ev.seen.some((m) => m.method === "session/message" && m.params?.sessionId === appSid && JSON.stringify(m.params.message).includes("Task list shown."));
 report("C12", "the app's task list tool runs without a permission prompt", !!appDone && !asked && shown, JSON.stringify([!!appDone, asked, shown]));
 
+// The panes: this task has no terminal; files are read inside the workspace only (a link out of it
+// included).
+const term = await rpc("terminal/open", { cols: 80, rows: 24 });
+report("C13", "the terminal is refused when the task doesn't enable it", term.status === 403 && term.body.error?.data?.blocked, JSON.stringify(term));
+const { symlinkSync, rmSync } = await import("node:fs");
+rmSync("/usercode/FILESYSTEM/notes/out", { force: true });
+symlinkSync("/etc/passwd", "/usercode/FILESYSTEM/notes/out");
+const tree = await rpc("files/tree", {});
+const hello = await rpc("files/read", { path: "notes/hello.txt" });
+const reads = await Promise.all(["/etc/passwd", "../../etc/passwd", "notes/out"].map((path) => rpc("files/read", { path })));
+rmSync("/usercode/FILESYSTEM/notes/out", { force: true });
+report("C14", "files list and read inside the workspace; absolute paths, .. and links out are refused",
+  (tree.body.result?.files ?? []).includes("notes/hello.txt") && typeof hello.body.result?.content === "string" && reads.every((r) => r.body.error && !r.body.result),
+  JSON.stringify([tree.status, hello.body, reads.map((r) => [r.status, r.body.error?.message])]).slice(0, 300));
+
+// Rewind: the conversation goes back to before a prompt, and Undo brings it back.
+const prompts = (messages) => messages.filter((m) => m.type === "user" && !(Array.isArray(m.message?.content) && m.message.content.some((b) => b.type === "tool_result")) && !/^\s*</.test(typeof m.message?.content === "string" ? m.message.content : m.message?.content?.[0]?.text ?? ""));
+const turn = async (params) => {
+  const r = await rpc("session/send", params);
+  const id = r.body.result?.sessionId;
+  await ev.waitFor((m) => m.method === "session/message" && m.params?.sessionId === id && m.params.message?.type === "result" && !seenResults.has(m));
+  for (const m of ev.seen) if (m.params?.message?.type === "result") seenResults.add(m);
+  return id;
+};
+const seenResults = new Set(ev.seen.filter((m) => m.params?.message?.type === "result"));
+const rsid = await turn({ text: "first prompt" });
+await turn({ sessionId: rsid, text: "second prompt" });
+const before = prompts((await rpc("session/read", { sessionId: rsid })).body.result?.messages ?? []);
+const firstRefused = await rpc("session/rewind", { sessionId: rsid, userMessageId: before[0]?.uuid });
+const rewound = await rpc("session/rewind", { sessionId: rsid, userMessageId: before[1]?.uuid });
+const during = (await rpc("session/read", { sessionId: rsid })).body.result;
+const undone = await rpc("session/undoRewind", { sessionId: rsid });
+const after = prompts((await rpc("session/read", { sessionId: rsid })).body.result?.messages ?? []);
+report("C15", "rewind removes a prompt and what followed (not the first), and Undo rewind brings it back",
+  before.length === 2 && firstRefused.body.error && !firstRefused.body.result && rewound.body.result?.text === "second prompt" && prompts(during?.messages ?? []).length === 1 && during?.rewound?.userMessageId === before[1].uuid && undone.status === 200 && after.length === 2,
+  JSON.stringify([before.length, firstRefused.body, rewound.body, prompts(during?.messages ?? []).length, undone.status, after.length]).slice(0, 300));
+
 ev.close();
 process.exit(failed ? 1 : 0);

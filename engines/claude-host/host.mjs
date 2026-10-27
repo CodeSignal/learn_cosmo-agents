@@ -6,12 +6,16 @@
 //
 // Client → host:  initialize · session/list · session/read · session/send · session/interrupt ·
 //                 session/configure · session/rename · session/fork · session/archive ·
-//                 session/rewindFiles · session/context · session/close · files/search
+//                 session/rewindFiles · session/rewind · session/undoRewind · session/context ·
+//                 session/close · files/search · files/tree · files/read ·
+//                 terminal/open · terminal/write · terminal/resize · terminal/close
 // Host → client:  session/message {sessionId, message}   every SDK message, as it arrives
 //                 session/state {sessionId, state}       "running" | "idle"
 //                 session/permission (request)           the engine asks before using a tool
 //                 session/permissionCancelled {id}       a pending ask the engine dropped
+//                 terminal/output {id, data} · terminal/exit {id, code}
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -31,6 +35,10 @@ const ARCHIVED = "archived";
 const PLANS = path.join(os.homedir(), ".claude", "plans");
 const MAX_PLAN = 200_000;
 const MANAGED = "/etc/claude-code/managed-settings.json";
+// The candidate's terminal, only when the task has one ("sandboxed"; the gateway checks too).
+const TERMINAL = process.env.COSMO_CODE_TERMINAL === "sandboxed";
+const TERMINAL_SHELL = process.env.TERMINAL_SHELL ?? "/opt/agentsim/bin/terminal-shell";
+const MAX_FILE = 1024 * 1024;
 
 if (!TOKEN) {
   console.error("COSMO_CODE_TOKEN is required");
@@ -110,6 +118,9 @@ function ask(method, params, signal) {
 
 /** Live sessions: an SDK query fed by an input queue. Idle ones stay open until closed. */
 const live = new Map();
+
+/** Rewound sessions: where the conversation was cut, and where it ended before (for Undo). */
+const rewinds = new Map();
 
 function openSession(sessionId, settings, { resume = false, resumeAt } = {}) {
   const inbox = [];
@@ -335,7 +346,28 @@ const handlers = {
     return { sessions: sessions.map((s) => ({ ...s, archived: s.tag === ARCHIVED, state: live.get(s.sessionId)?.state ?? "idle" })) };
   },
   async "session/read"({ sessionId }) {
-    return { messages: await getSessionMessages(sessionId, { dir: WORKSPACE }), info: await getSessionInfo(sessionId, { dir: WORKSPACE }) };
+    let messages = await getSessionMessages(sessionId, { dir: WORKSPACE });
+    const rewound = rewinds.get(sessionId);
+    if (rewound) messages = messages.slice(0, messages.findIndex((m) => m.uuid === rewound.at) + 1);
+    return { messages, info: await getSessionInfo(sessionId, { dir: WORKSPACE }), ...(rewound ? { rewound: { userMessageId: rewound.userMessageId } } : {}) };
+  },
+  /** Rewind to before a message: its files go back, and it and everything after leave the conversation. */
+  async "session/rewind"({ sessionId, userMessageId }) {
+    const messages = await getSessionMessages(sessionId, { dir: WORKSPACE });
+    const at = messages.findIndex((m) => m.uuid === userMessageId);
+    if (at < 0 || messages[at].type !== "user") throw rpcError(-32602, "No such message in this session");
+    if (!messages.slice(0, at).some(isPrompt)) throw rpcError(-32602, "The first message can't be rewound; start a new session instead.");
+    const session = live.get(sessionId) ?? openSession(sessionId, {}, { resume: true });
+    const files = await session.q.rewindFiles(userMessageId).catch((error) => ({ canRewind: false, error: String(error?.message ?? error) }));
+    session.close();
+    rewinds.set(sessionId, { at: messages[at - 1].uuid, leaf: messages.at(-1).uuid, userMessageId });
+    return { files, text: promptText(messages[at].message) };
+  },
+  /** Bring back the messages a rewind removed (the files stay as they are). */
+  async "session/undoRewind"({ sessionId }) {
+    rewinds.delete(sessionId);
+    live.get(sessionId)?.close();
+    return {};
   },
   /** Send a prompt; without a sessionId this starts a session (its id comes back at once). */
   async "session/send"({ sessionId, text, ...rest }) {
@@ -344,7 +376,10 @@ const handlers = {
     let session = sessionId ? live.get(sessionId) : undefined;
     if (!session) {
       const id = sessionId ?? crypto.randomUUID();
-      session = openSession(id, settings, { resume: !!sessionId });
+      // After a rewind the conversation continues from where it was cut.
+      const resumeAt = rewinds.get(id)?.at;
+      rewinds.delete(id);
+      session = openSession(id, settings, { resume: !!sessionId, resumeAt });
     } else if (Object.keys(settings).length) {
       await configure(session, settings);
     }
@@ -381,6 +416,42 @@ const handlers = {
     const session = live.get(sessionId);
     return session ? await session.q.getContextUsage() : null;
   },
+  async "files/tree"() {
+    return { files: workspaceFiles() };
+  },
+  /** A workspace file for the Files pane (read-only; symlinks out of the workspace are refused). */
+  async "files/read"({ path: rel }) {
+    const root = fs.realpathSync(WORKSPACE);
+    let file;
+    try {
+      file = fs.realpathSync(path.resolve(WORKSPACE, String(rel)));
+    } catch {
+      throw rpcError(-32602, "No such file");
+    }
+    if (!file.startsWith(root + path.sep)) throw rpcError(-32001, "Only files in the workspace can be opened");
+    const st = fs.statSync(file);
+    if (!st.isFile()) throw rpcError(-32602, "Not a file");
+    if (st.size > MAX_FILE) return { path: rel, size: st.size, tooLarge: true };
+    const data = fs.readFileSync(file);
+    if (data.subarray(0, 8000).includes(0)) return { path: rel, size: st.size, binary: true };
+    return { path: rel, size: st.size, content: data.toString("utf8") };
+  },
+  async "terminal/open"({ cols = 80, rows = 24 }) {
+    if (!TERMINAL) throw rpcError(-32001, "The terminal isn't available in this task.");
+    return openTerminal(Number(cols) || 80, Number(rows) || 24);
+  },
+  async "terminal/write"({ id, data }) {
+    terminals.get(id)?.stdin.write(Buffer.from(String(data), "base64"));
+    return {};
+  },
+  async "terminal/resize"({ id, cols, rows }) {
+    terminals.get(id)?.stdin.write(`\x1b]777;resize;${Number(cols) || 80};${Number(rows) || 24}\x07`);
+    return {};
+  },
+  async "terminal/close"({ id }) {
+    terminals.get(id)?.kill("SIGHUP");
+    return {};
+  },
   async "files/search"({ query = "", limit = 20 }) {
     return { files: searchFiles(String(query), Math.min(Number(limit) || 20, 100)) };
   },
@@ -389,6 +460,50 @@ const handlers = {
     return {};
   },
 };
+
+/** The text of a prompt (reminders the engine adds aren't the candidate's). */
+/** A prompt the candidate sent (not a tool result, and not text the engine added around one). */
+function isPrompt(m) {
+  if (m.type !== "user") return false;
+  const content = m.message?.content;
+  if (Array.isArray(content) && content.some((b) => b?.type === "tool_result")) return false;
+  return !/^\s*<(system-reminder|local-command|command-name|command-message|command-args)/.test(promptText(m.message)) && !!promptText(m.message).trim();
+}
+
+function promptText(message) {
+  const content = message?.content;
+  if (typeof content === "string") return content;
+  return (Array.isArray(content) ? content : [])
+    .filter((b) => b?.type === "text" && !/^\s*<system-reminder>/.test(b.text ?? ""))
+    .map((b) => b.text)
+    .join("\n");
+}
+
+// ── terminal ────────────────────────────────────────────────────────────────────────────────
+
+const terminals = new Map();
+
+/**
+ * A login shell in the workspace, in a sandbox fixed here: the whole system read-only except the
+ * workspace and /tmp, no network, its own process tree; and no proxy keys in its environment.
+ * terminal-shell gives bash a terminal of its own (job control) and takes resizes in-band.
+ */
+function openTerminal(cols, rows) {
+  const id = crypto.randomUUID();
+  const sandbox = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--bind", WORKSPACE, WORKSPACE, "--bind", "/tmp", "/tmp", "--unshare-net", "--unshare-pid", "--unshare-ipc", "--die-with-parent", "--new-session", "--chdir", WORKSPACE, "--", TERMINAL_SHELL];
+  const env = { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: os.homedir(), USER: os.userInfo().username, LANG: "C.UTF-8", TERM: "xterm-256color", COLORTERM: "truecolor", COLUMNS: String(cols), LINES: String(rows) };
+  const child = spawn("bwrap", sandbox, { cwd: WORKSPACE, env, stdio: ["pipe", "pipe", "pipe"] });
+  terminals.set(id, child);
+  const out = (data) => notify("terminal/output", { id, data: data.toString("base64") });
+  child.stdout.on("data", out);
+  child.stderr.on("data", out);
+  child.on("error", (error) => out(Buffer.from(`\r\n${error.message}\r\n`)));
+  child.on("close", (code) => {
+    terminals.delete(id);
+    notify("terminal/exit", { id, code });
+  });
+  return { id };
+}
 
 /** Model and mode change on the running engine; effort applies from the next session start. */
 async function configure(session, settings) {

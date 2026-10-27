@@ -1,11 +1,11 @@
 // Read-only git views of the task workspace for the agent UIs' change lists ("Uncommitted",
-// "Unstaged", "Staged"). Runs as the server's own user: no writes (optional locks off), bounded
+// "Unstaged", "Staged", and "All changes vs main": everything since the branch left main). Runs as the server's own user: no writes (optional locks off), bounded
 // time and output. The workspace belongs to the session user, hence the safe.directory entry.
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 
-export const SCOPES = ["uncommitted", "unstaged", "staged"];
+export const SCOPES = ["uncommitted", "unstaged", "staged", "base"];
 const MAX_OUTPUT = 4 * 1024 * 1024;
 const MAX_UNTRACKED_FILE = 256 * 1024;
 
@@ -45,9 +45,23 @@ export async function workspaceDiff(workspace, scope) {
   if (scope === "unstaged") return { scope, available: true, diff: (await git(workspace, ["diff", ...flags])).out };
   if (scope === "staged") return { scope, available: true, diff: (await git(workspace, ["diff", "--cached", ...flags])).out };
   const hasHead = (await git(workspace, ["rev-parse", "--verify", "-q", "HEAD"])).ok;
-  const tracked = hasHead
-    ? (await git(workspace, ["diff", "HEAD", ...flags])).out
+  // "vs main": from where this branch left the base branch (main, else master); without one, HEAD.
+  let from = hasHead ? "HEAD" : null;
+  let base = null;
+  if (scope === "base" && hasHead) {
+    for (const name of ["main", "master"]) {
+      if (!(await git(workspace, ["rev-parse", "--verify", "-q", `refs/heads/${name}`])).ok) continue;
+      const fork = (await git(workspace, ["merge-base", `refs/heads/${name}`, "HEAD"])).out.trim();
+      if (fork) {
+        from = fork;
+        base = name;
+      }
+      break;
+    }
+  }
+  const tracked = from
+    ? (await git(workspace, ["diff", from, ...flags])).out
     : (await git(workspace, ["diff", "--cached", ...flags])).out + (await git(workspace, ["diff", ...flags])).out;
   const others = (await git(workspace, ["ls-files", "--others", "--exclude-standard", "-z"])).out.split("\0").filter(Boolean);
-  return { scope, available: true, diff: tracked + others.map((rel) => untrackedDiff(workspace, rel)).join("") };
+  return { scope, available: true, ...(scope === "base" ? { base } : {}), diff: tracked + others.map((rel) => untrackedDiff(workspace, rel)).join("") };
 }

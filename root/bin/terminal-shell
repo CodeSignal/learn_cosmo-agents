@@ -3,13 +3,21 @@
 # starts a new session without a controlling terminal: bash would have no job control (Ctrl+C,
 # Ctrl+Z) and would never hear about resizes. So bash gets a PTY of its own here; input and output
 # are relayed, and the outer terminal's size is passed on whenever it changes.
+#
+# Without an outer terminal (plain pipes, as the Cosmo Code engine host runs it), the size comes
+# from COLUMNS and LINES, and a resize arrives in-band as ESC ] 777 ; resize ; <cols> ; <rows> BEL,
+# which is taken out of the input.
 import fcntl
 import os
 import pty
+import re
 import select
+import struct
 import sys
 import termios
 import tty
+
+RESIZE = re.compile(rb"\x1b\]777;resize;(\d+);(\d+)\x07")
 
 
 def window_size(fd):
@@ -26,22 +34,36 @@ if pid == 0:
     os.execvp("bash", ["bash", "-l"])
 
 outer_in, outer_out = sys.stdin.fileno(), sys.stdout.fileno()
+piped = not os.isatty(outer_in)
 try:
     tty.setraw(outer_in)  # keys pass through untouched; the inner PTY does the line editing
 except termios.error:
     pass
 
-size = None
-while True:
+
+def set_size(cols, rows):
+    fcntl.ioctl(inner, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+
+if piped:
     try:
-        now = window_size(outer_in)
-        if now != size:
-            fcntl.ioctl(inner, termios.TIOCSWINSZ, now)  # the kernel signals bash (SIGWINCH)
-            size = now
-    except OSError:
+        set_size(int(os.environ.get("COLUMNS", "80")), int(os.environ.get("LINES", "24")))
+    except (ValueError, OSError):
         pass
+
+size = None
+reading = True  # until the input ends; the shell's output is relayed until it exits
+while True:
+    if not piped:
+        try:
+            now = window_size(outer_in)
+            if now != size:
+                fcntl.ioctl(inner, termios.TIOCSWINSZ, now)  # the kernel signals bash (SIGWINCH)
+                size = now
+        except OSError:
+            pass
     try:
-        ready, _, _ = select.select([outer_in, inner], [], [], 0.25)
+        ready, _, _ = select.select([outer_in, inner] if reading else [inner], [], [], 0.25)
     except InterruptedError:
         continue
     if inner in ready:
@@ -52,11 +74,20 @@ while True:
         if not data:
             break
         write_all(outer_out, data)
-    if outer_in in ready:
+    if reading and outer_in in ready:
         data = os.read(outer_in, 65536)
         if not data:
-            break
-        write_all(inner, data)
+            reading = False
+            continue
+        if piped:
+            for match in RESIZE.finditer(data):
+                try:
+                    set_size(int(match.group(1)), int(match.group(2)))
+                except OSError:
+                    pass
+            data = RESIZE.sub(b"", data)
+        if data:
+            write_all(inner, data)
 
 _, status = os.waitpid(pid, 0)
 sys.exit(os.waitstatus_to_exitcode(status))

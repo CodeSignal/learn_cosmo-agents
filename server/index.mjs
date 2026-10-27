@@ -196,7 +196,7 @@ export function gatewaysFor(policy, events, env = process.env) {
     });
   }
   if (policy.agents.includes("cosmo-code") && env.CLAUDE_HOST_URL) {
-    gateways["cosmo-code"] = createClaudeGateway({ url: env.CLAUDE_HOST_URL, ceilings: claudeCeilings(policy), events });
+    gateways["cosmo-code"] = createClaudeGateway({ url: env.CLAUDE_HOST_URL, ceilings: claudeCeilings(policy), terminal: policy.terminal === "sandboxed", events });
   }
   return gateways;
 }
