@@ -5,7 +5,19 @@
 // checked against what the task allows.
 import path from "node:path";
 import { RouteGateway, readBody } from "../gateway.mjs";
+import fs from "node:fs";
 import { METHODS, DECISIONS, USER_INPUT, CODEX_VERSION } from "./codex-methods.mjs";
+
+// The parameters each method's stable schema declares (scripts/gen-codex-params.mjs), plus the
+// experimental ones Cosmodex needs. Anything else is refused: the experimental API also carries
+// permission profiles, extra writable roots, injected history and context, which a task controls.
+const STABLE_PARAMS = JSON.parse(fs.readFileSync(new URL("./codex-params.json", import.meta.url), "utf8"));
+const EXPERIMENTAL_PARAMS = {
+  "turn/start": ["collaborationMode"],
+  "thread/fork": ["beforeTurnId", "deferGoalContinuation"],
+  "thread/resume": ["initialTurnsPage"],
+  "thread/list": ["parentThreadId", "ancestorThreadId"],
+};
 
 const SANDBOX_TYPES = { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" };
 // Parameters a candidate's UI never needs and that would change how the engine is set up.
@@ -27,6 +39,10 @@ export function checkParams(method, params = {}, ctx) {
   const p = params && typeof params === "object" ? { ...params } : {};
   const has = (k) => p[k] !== undefined && p[k] !== null;
   const inside = (v) => withinWorkspace(ctx.workspace, v);
+
+  const known = new Set([...(STABLE_PARAMS[method] ?? []), ...(EXPERIMENTAL_PARAMS[method] ?? [])]);
+  const unknown = Object.keys(p).find((k) => !known.has(k) && p[k] !== undefined);
+  if (unknown) return { reason: `the "${unknown.slice(0, 40)}" option` };
 
   if (THREAD_SETUP.has(method) || method === "turn/start" || method === "command/exec") {
     for (const key of SETUP_KEYS) if (has(key)) return { reason: CONFIG_REASON(key) };

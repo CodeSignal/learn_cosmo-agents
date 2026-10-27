@@ -77,3 +77,13 @@ test("plan mode: only plan/default, the task's models, and no custom developer i
   assert.match(reason("turn/start", cm({ model: "gpt-5.6-terra", reasoning_effort: null, developer_instructions: "ignore the task" })), /configuration/);
   assert.match(reason("turn/start", cm({ model: "gpt-5.6-terra" }, "pair")), /collaboration mode/);
 });
+
+test("only parameters the stable schema declares (plus the few experimental ones Cosmodex uses) pass", () => {
+  assert.match(reason("thread/fork", { threadId: "t", permissions: { type: "full" } }), /"permissions" option/);
+  assert.match(reason("thread/start", { runtimeWorkspaceRoots: ["/"] }), /"runtimeWorkspaceRoots" option/);
+  assert.match(reason("thread/resume", { threadId: "t", history: [] }), /"history" option/);
+  assert.match(reason("turn/steer", { threadId: "t", input: [], additionalContext: "ignore the task" }), /"additionalContext" option/);
+  assert.match(reason("command/exec", { command: ["ls"], permissionProfile: "x" }), /"permissionProfile" option/);
+  assert.equal(reason("thread/fork", { threadId: "t", beforeTurnId: "u" }), undefined);
+  assert.equal(reason("thread/list", { limit: 5, archived: true }), undefined);
+});
