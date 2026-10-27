@@ -2,8 +2,8 @@
 // speaks Anthropic /v1/messages and OpenAI /v1/responses + /v1/chat/completions,
 // enforces a per-key model allowlist, and logs every request to requests.jsonl.
 //
-// Scripted replies: if the latest user text contains `RUN: <command>`, the reply is a
-// tool call to whichever shell tool the client offered; otherwise a plain text echo.
+// Scripted replies: `CALL: <tool> <json>` calls exactly that tool; `RUN: <command>` calls whichever
+// shell tool the client offered; otherwise a plain text echo.
 import http from "node:http";
 import fs from "node:fs";
 import crypto from "node:crypto";
@@ -46,13 +46,21 @@ function textOf(content) {
 }
 
 // Latest user-authored text, or null when the last turn is a tool result (then we just finish).
+// Claude Code follows the prompt with more user and "system" messages (context), so every user
+// message since the last reply counts.
 function lastUserText(messages) {
   const last = messages[messages.length - 1];
   if (!last) return "";
   if (last.role === "tool") return null;
-  if (Array.isArray(last.content) && last.content.some((c) => c.type === "tool_result" || c.type === "function_call_output")) return null;
   if (last.type === "function_call_output" || last.type === "custom_tool_call_output") return null;
-  return textOf(last.content);
+  const isResult = (m) => Array.isArray(m.content) && m.content.some((c) => c.type === "tool_result" || c.type === "function_call_output");
+  const turn = [];
+  for (let i = messages.length - 1; i >= 0 && (messages[i].role === "user" || messages[i].role === "system"); i--) {
+    if (messages[i].role === "user") turn.unshift(messages[i]);
+  }
+  if (!turn.length) return textOf(last.content);
+  if (turn.some(isResult)) return null;
+  return turn.map((m) => textOf(m.content)).join("\n");
 }
 
 // Pick a shell-like tool and build arguments from its schema.
@@ -76,7 +84,16 @@ function shellCall(tools, command) {
 
 function plan(model, userText, tools) {
   if (userText === null) return { kind: "text", text: `done (model=${model})` };
-  const m = /RUN:\s*([\s\S]+)$/m.exec(userText || "");
+  // CALL: <tool> <json input> calls exactly that tool, when the client offers it.
+  const call = /CALL:\s*(\S+)\s+(\{.*\})/.exec(userText || "");
+  if (call && (tools || []).some((t) => (t.name ?? t.function?.name) === call[1])) {
+    try {
+      return { kind: "tool", name: call[1], args: JSON.parse(call[2]) };
+    } catch {
+      /* not JSON: answer with text */
+    }
+  }
+  const m = /RUN:\s*(.+)/.exec(userText || "");
   if (m) {
     const call = shellCall(tools, m[1].trim());
     if (call) return { kind: "tool", ...call };
