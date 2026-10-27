@@ -86,7 +86,8 @@ if (thread) {
   report("X6", "the agent's command waits for the candidate's approval (request reaches the browser)", !!ask, JSON.stringify(ev.seen.slice(-3)).slice(0, 300));
   if (ask) {
     const sneaky = await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ask.id, result: { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["echo"] } } } }) });
-    const plain = await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: String(ask.id), result: { decision: "accept" } }) // the browser sends ids as strings });
+    // The browser sends ids as strings.
+    const plain = await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: String(ask.id), result: { decision: "accept" } }) });
     report("X7", "only plain decisions are accepted (a policy amendment is refused)", sneaky.status === 403 && plain.status === 200, `${sneaky.status} ${plain.status}`);
     const done = await ev.waitFor((m) => m.method === "turn/completed");
     report("X8", "the turn completes after the answer", !!done, JSON.stringify(ev.seen.slice(-3)).slice(0, 300));
