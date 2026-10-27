@@ -14,6 +14,9 @@ const DEFAULTS = {
   bottomPanel: false,
   confetti: false,
   showMini: false,
+  /** The sidebar's activity view (bell), and whether it shows each chat's last reply. */
+  activityView: false,
+  activityPreviews: true,
   /** Chats pinned to the top of the sidebar. */
   pinned: [] as string[],
 }

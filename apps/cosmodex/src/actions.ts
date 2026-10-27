@@ -3,6 +3,7 @@
 // `locked` says why.
 import type { IconName } from "./icons"
 import { editor } from "./editor"
+import { prefs, setPref } from "./prefs"
 import {
   activeThread,
   archive,
@@ -84,7 +85,7 @@ export const ACTIONS: Action[] = [
   { id: "pin", label: "Toggle pin", icon: "pin", shortcut: "Ctrl+Alt+P", when: onThread, run: withThread(pin) },
   { id: "side-chat", label: "Open side chat", shortcut: "Ctrl+Alt+S", locked: NA },
   { id: "switch-chat", label: "Switch chat…", icon: "chat", run: () => openCommandMenu("chats") },
-  { id: "activity", label: "Toggle activity view", shortcut: "Ctrl+Alt+U", run: () => showToast("This part of Cosmodex isn't available yet.") },
+  { id: "activity", label: "Toggle activity view", shortcut: "Ctrl+Alt+U", run: () => setPref("activityView", !prefs.activityView) },
   { id: "focus", label: "Focus main chat", shortcut: "Alt+L", run: () => editor.focus() },
   {
     id: "attention",

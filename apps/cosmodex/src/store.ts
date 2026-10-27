@@ -65,6 +65,8 @@ const [state, setState] = createStore({
   /** The command menu's open tab (null when closed), and the skills the engine offers. */
   commandMenu: null as CommandTab | null,
   skills: [] as SkillMetadata[],
+  /** Each chat's last reply, for the activity view's previews. */
+  lastReply: {} as Record<string, string>,
   /** Files picked this session (command menu › Files "Opened recently"), newest first. */
   recentFiles: [] as string[],
   /** The tabs pane (right of the chat): its tabs, the selected one, full view, and the Changes tab's settings. */
@@ -216,6 +218,7 @@ function onMessage(msg: EngineMessage) {
       })
     case "item/started":
     case "item/completed":
+      if (msg.method === "item/completed" && p.item?.type === "agentMessage" && p.item.text) setState("lastReply", p.threadId, p.item.text)
       return withTurn(p.threadId, p.turnId, (turn) => {
         const at = turn.items.findIndex((i) => i.id === p.item.id)
         if (at >= 0) turn.items[at] = p.item
@@ -648,4 +651,14 @@ export async function loadTurns(threadId: string): Promise<TurnView[]> {
 
 export function rememberFile(path: string) {
   setState("recentFiles", (files) => [path, ...files.filter((f) => f !== path)].slice(0, 10))
+}
+
+/** A chat's last reply (from its history, once) for the activity view. */
+export async function loadReply(threadId: string) {
+  if (state.lastReply[threadId] !== undefined) return
+  setState("lastReply", threadId, "")
+  const turns = await loadTurns(threadId)
+  const items = turns.flatMap((t) => t.items)
+  const last = items.findLast((i) => i.type === "agentMessage" && i.text)
+  if (last?.type === "agentMessage") setState("lastReply", threadId, last.text)
 }

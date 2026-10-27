@@ -1430,3 +1430,24 @@ button:disabled {
 .cx-composer-row .cx-send {
   flex: none;
 }
+
+/* Activity view */
+.cx-icon-btn[data-on] {
+  color: var(--v2-text-text-accent);
+  background: var(--v2-state-bg-info);
+}
+.cx-thread-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.cx-thread-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--v2-text-text-muted);
+}

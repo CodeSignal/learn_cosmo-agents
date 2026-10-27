@@ -1,11 +1,12 @@
 // Window chrome: title bar with menus, left rail, and the sidebar with projects and chats.
-import { For, Show } from "solid-js"
+import { createEffect, For, Show } from "solid-js"
 import { Icon, type IconName } from "../icons"
 import { MenuList, Popover, type MenuItem } from "./popover"
-import { prefs } from "../prefs"
+import { prefs, setPref } from "../prefs"
 import {
   archive,
   goHome,
+  loadReply,
   openCommandMenu,
   openSettings,
   openTerminal,
@@ -24,7 +25,6 @@ import {
 } from "../store"
 
 const LOCKED = "Not available in this task"
-const soon = () => showToast("This part of Cosmodex isn't available yet.")
 
 const MENUS: Record<string, MenuItem[]> = {
   File: [
@@ -145,7 +145,15 @@ export function Rail() {
 }
 
 // A chat row; on hover it shows Pin chat and Archive chat, as in the original.
-function ThreadRow(props: { thread: ThreadView; indent?: boolean }) {
+/** A reply as one line of plain text for a preview (markdown marks and code fences dropped). */
+const plain = (text: string) =>
+  text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#>*_`|[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+function ThreadRow(props: { thread: ThreadView; indent?: boolean; preview?: string }) {
   const pending = () => requestFor(props.thread.id)
   const running = () => props.thread.status?.type === "active"
   const pinned = () => prefs.pinned.includes(props.thread.id)
@@ -159,7 +167,12 @@ function ThreadRow(props: { thread: ThreadView; indent?: boolean }) {
         <Show when={pinned()}>
           <Icon name="pin" size={12} class="cx-pin-mark" />
         </Show>
-        <span class="cx-thread-title">{threadTitle(props.thread)}</span>
+        <span class="cx-thread-text">
+          <span class="cx-thread-title">{threadTitle(props.thread)}</span>
+          <Show when={props.preview}>
+            <span class="cx-thread-preview">{props.preview}</span>
+          </Show>
+        </span>
       </button>
       <Show when={pending()}>
         <span class="cx-pill" data-kind={pending()!.method.includes("requestUserInput") ? "input" : "approval"}>
@@ -178,6 +191,84 @@ function ThreadRow(props: { thread: ThreadView; indent?: boolean }) {
         </button>
       </span>
     </div>
+  )
+}
+
+const DAY = 86_400_000
+
+/** Date groups for the activity view, newest first. */
+function byDate(threads: ThreadView[]) {
+  const today = new Date().setHours(0, 0, 0, 0)
+  const groups: [string, (ms: number) => boolean][] = [
+    ["Today", (ms) => ms >= today],
+    ["Yesterday", (ms) => ms >= today - DAY],
+    ["Previous 7 days", (ms) => ms >= today - 7 * DAY],
+    ["Previous 30 days", (ms) => ms >= today - 30 * DAY],
+    ["Older", () => true],
+  ]
+  const sorted = [...threads].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
+  const out: { label: string; threads: ThreadView[] }[] = []
+  for (const thread of sorted) {
+    const ms = Number(thread.updatedAt ?? 0) * 1000
+    const label = groups.find(([, test]) => test(ms))![0]
+    const group = out.find((g) => g.label === label)
+    if (group) group.threads.push(thread)
+    else out.push({ label, threads: [thread] })
+  }
+  return out
+}
+
+/** The activity view (S04): what needs you first, then chats by date with their last reply. */
+function Activity() {
+  const waiting = () => threadOrder().filter((t) => requestFor(t.id))
+  const rest = () => threadOrder().filter((t) => !requestFor(t.id))
+  // Previews of chats not opened yet come from their history, read once.
+  createEffect(() => {
+    if (prefs.activityPreviews) for (const thread of threadOrder()) void loadReply(thread.id)
+  })
+  const preview = (thread: ThreadView) => (prefs.activityPreviews ? plain(state.lastReply[thread.id] ?? "") || undefined : undefined)
+  return (
+    <>
+      <section class="cx-section">
+        <div class="cx-section-head">
+          <span>Priority</span>
+          <div class="cx-grow" />
+          <Popover
+            align="end"
+            class="cx-wide-menu"
+            trigger={(_, toggle) => (
+              <button class="cx-icon-btn cx-small" aria-label="Activity view options" onClick={toggle}>
+                <Icon name="more" size={14} />
+              </button>
+            )}
+          >
+            {(close) => (
+              <MenuList
+                close={close}
+                items={[
+                  { label: "Show previews", checked: prefs.activityPreviews, onSelect: () => setPref("activityPreviews", !prefs.activityPreviews) },
+                  { separator: true },
+                  { label: "Turn off activity view", shortcut: "Ctrl+Alt+U", onSelect: () => setPref("activityView", false) },
+                ]}
+              />
+            )}
+          </Popover>
+        </div>
+        <For each={waiting()} fallback={<div class="cx-empty-row">Nothing needs attention</div>}>
+          {(thread) => <ThreadRow thread={thread} preview={preview(thread)} />}
+        </For>
+      </section>
+      <For each={byDate(rest())}>
+        {(group) => (
+          <section class="cx-section">
+            <div class="cx-section-head">
+              <span>{group.label}</span>
+            </div>
+            <For each={group.threads}>{(thread) => <ThreadRow thread={thread} preview={preview(thread)} />}</For>
+          </section>
+        )}
+      </For>
+    </>
   )
 }
 
@@ -205,7 +296,13 @@ export function Sidebar() {
           )}
         </Popover>
         <div class="cx-grow" />
-        <button class="cx-icon-btn" aria-label={attention() ? "View activity, needs attention" : "View activity"} onClick={soon}>
+        <button
+          class="cx-icon-btn"
+          data-on={prefs.activityView ? "" : undefined}
+          aria-label={prefs.activityView ? "Turn off activity view" : attention() ? "View activity, needs attention" : "View activity"}
+          aria-pressed={prefs.activityView}
+          onClick={() => setPref("activityView", !prefs.activityView)}
+        >
           <Icon name="bell" />
           <Show when={attention()}>
             <span class="cx-dot" />
@@ -220,6 +317,7 @@ export function Sidebar() {
         <Icon name="pencil" /> New chat
       </button>
 
+      <Show when={!prefs.activityView} fallback={<Activity />}>
       <section class="cx-section">
         <div class="cx-section-head">
           <span>Projects</span>
@@ -244,6 +342,7 @@ export function Sidebar() {
           {(thread) => <ThreadRow thread={thread} />}
         </For>
       </section>
+      </Show>
     </aside>
   )
 }
