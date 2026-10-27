@@ -53,6 +53,17 @@ test("turns: sandbox policy, network access, writable roots and local files stay
   assert.equal(reason("turn/steer", { threadId: "t", input: [{ type: "localImage", path: "shots/a.png" }] }), undefined);
 });
 
+test("file mentions stay in the workspace; skills must be ones the engine lists", () => {
+  const skill = "/home/runner/.codex/skills/.system/imagegen/SKILL.md";
+  const withSkills = { ...ctx, skillPaths: new Set([skill]) };
+  const turn = (input, c = ctx) => checkParams("turn/start", { threadId: "t", input }, c).reason;
+  assert.equal(turn([{ type: "mention", name: "calc.py", path: "calc.py" }]), undefined);
+  assert.match(turn([{ type: "mention", name: "passwd", path: "/etc/passwd" }]), /outside/);
+  assert.equal(turn([{ type: "skill", name: "imagegen", path: skill }], withSkills), undefined);
+  assert.match(turn([{ type: "skill", name: "x", path: "/opt/agentsim/task.md" }], withSkills), /skills/);
+  assert.match(turn([{ type: "skill", name: "imagegen", path: skill }]), /skills/);
+});
+
 test("files and search are clamped to the workspace", () => {
   assert.equal(reason("fs/readFile", { path: "/usercode/FILESYSTEM/src/a.py" }), undefined);
   assert.equal(reason("fs/readFile", { path: "src/a.py" }), undefined);

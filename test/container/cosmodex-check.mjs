@@ -159,5 +159,27 @@ if (steer.body.result) {
   report("X15", "a steered follow-up joins the running turn", steered.status === 200 && !!done && !!reply, JSON.stringify([steered.status, steered.body]).slice(0, 300));
 }
 
+// Composer inputs: file search and file chips stay in the workspace; skills must be the engine's own.
+const files = await rpc("fuzzyFileSearch", { query: "hello", roots: [WS], cancellationToken: null });
+const filesOut = await rpc("fuzzyFileSearch", { query: "passwd", roots: ["/etc"], cancellationToken: null });
+const skills = await rpc("skills/list", { cwds: [WS] });
+const skill = skills.body.result?.data?.flatMap((e) => e.skills).find((k) => k.enabled);
+const inputs = await rpc("thread/start", {});
+if (inputs.body.result) {
+  const tid = inputs.body.result.thread.id;
+  const text = (t) => ({ type: "text", text: t, text_elements: [] });
+  const outside = await rpc("turn/start", { threadId: tid, input: [text("read"), { type: "mention", name: "passwd", path: "/etc/passwd" }] });
+  const forged = await rpc("turn/start", { threadId: tid, input: [text("go"), { type: "skill", name: "x", path: "/etc/passwd" }] });
+  let used = { status: 200 };
+  if (skill) {
+    used = await rpc("turn/start", { threadId: tid, input: [text("draw"), { type: "skill", name: skill.name, path: skill.path }] });
+    await ev.waitFor((m) => m.method === "turn/completed" && m.params?.threadId === tid);
+  }
+  report("X16", "file search and file chips stay in the workspace; only the engine's own skills can be used",
+    (files.body.result?.files ?? []).some((f) => f.path === "notes/hello.txt") && filesOut.status === 403 &&
+      outside.status === 403 && forged.status === 403 && used.status === 200,
+    JSON.stringify([files.body.result?.files?.length, filesOut.status, outside.status, forged.status, used.status, skill?.name ?? "no skills"]));
+}
+
 ev.close();
 process.exit(failed ? 1 : 0);

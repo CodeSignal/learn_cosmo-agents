@@ -72,9 +72,11 @@ export function checkParams(method, params = {}, ctx) {
   }
   if (method === "turn/start" || method === "turn/steer") {
     for (const item of Array.isArray(p.input) ? p.input : []) {
-      if ((item?.type === "localImage" || item?.type === "localAudio") && !inside(item.path)) {
+      if ((item?.type === "localImage" || item?.type === "localAudio" || item?.type === "mention") && !inside(item.path)) {
         return { reason: "files outside the task's workspace" };
       }
+      // A skill's file is read into the prompt, so only skills the engine itself lists may be used.
+      if (item?.type === "skill" && !ctx.skillPaths?.has(item.path)) return { reason: "skills" };
     }
   }
   if (method.startsWith("fs/")) {
@@ -233,6 +235,15 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
     },
   });
 
+  async function refreshSkills() {
+    try {
+      const res = await link.request("skills/list", { cwds: [ctx.workspace] });
+      ctx.skillPaths = new Set((res?.data ?? []).flatMap((entry) => (entry.skills ?? []).filter((k) => k.enabled).map((k) => k.path)));
+    } catch {
+      ctx.skillPaths = new Set();
+    }
+  }
+
   const send = (res, status, body) => {
     res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
     res.end(JSON.stringify(body));
@@ -252,6 +263,9 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
       return send(res, 404, { error: { code: -32601, message: "Method not found" } });
     }
     const allowed = decision === "allow" || (decision === "terminal" && terminal);
+    if (allowed && (method === "turn/start" || method === "turn/steer") && Array.isArray(params?.input) && params.input.some((i) => i?.type === "skill")) {
+      await refreshSkills();
+    }
     const reason = allowed ? checkParams(method, params, ctx).reason : decision === "terminal" ? "the terminal" : decision;
     if (reason) {
       events?.record("blocked", { gateway: "codex", agent, method, reason });
