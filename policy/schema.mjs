@@ -4,8 +4,13 @@ import fs from "node:fs";
 
 export const PINS = JSON.parse(fs.readFileSync(new URL("./pins.json", import.meta.url), "utf8"));
 
-const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models"]);
+const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models", "permissions"]);
 const TERMINAL = ["off", "sandboxed"];
+// "engine-default": each engine's own out-of-the-box behaviour; "ask": approve every edit and
+// shell command; "allow": no approval prompts.
+export const PERMISSION_PRESETS = ["engine-default", "ask", "allow"];
+const ACTIONS = ["ask", "allow", "deny"];
+const MAX_BASH_PATTERNS = 50;
 
 const isBool = (v) => typeof v === "boolean";
 const isStringArray = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
@@ -44,6 +49,8 @@ export function validateTaskConfig(raw, pins = PINS) {
   if (raw.terminal === "sandboxed" && raw.sandbox === false) {
     errors.push(`"terminal": "sandboxed" needs "sandbox": true`);
   }
+
+  const permissions = validatePermissions(raw.permissions, agents, errors);
 
   const models = {};
   const rawModels = raw.models ?? {};
@@ -85,8 +92,53 @@ export function validateTaskConfig(raw, pins = PINS) {
       sandbox: raw.sandbox ?? true,
       webTools: raw.webTools ?? false,
       models,
+      permissions,
     },
   };
+}
+
+/**
+ * `permissions`: { preset, edit?, bash? }. `edit` is one action; `bash` is one action or an
+ * object of command patterns ("*" wildcards, later patterns win) to actions.
+ */
+function validatePermissions(raw, agents, errors) {
+  if (raw === undefined) return { preset: "engine-default" };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    errors.push(`"permissions" must be an object`);
+    return { preset: "engine-default" };
+  }
+  for (const key of Object.keys(raw)) {
+    if (!["preset", "edit", "bash"].includes(key)) errors.push(`unknown key "permissions.${key}"`);
+  }
+  const preset = raw.preset ?? "engine-default";
+  if (!PERMISSION_PRESETS.includes(preset)) errors.push(`"permissions.preset" must be one of: ${PERMISSION_PRESETS.join(", ")}`);
+  const out = { preset };
+  if (raw.edit !== undefined) {
+    if (!ACTIONS.includes(raw.edit)) errors.push(`"permissions.edit" must be one of: ${ACTIONS.join(", ")}`);
+    else out.edit = raw.edit;
+  }
+  if (raw.bash !== undefined) {
+    if (typeof raw.bash === "string") {
+      if (!ACTIONS.includes(raw.bash)) errors.push(`"permissions.bash" must be one of: ${ACTIONS.join(", ")}, or an object of patterns`);
+      else out.bash = raw.bash;
+    } else if (raw.bash && typeof raw.bash === "object" && !Array.isArray(raw.bash)) {
+      const entries = Object.entries(raw.bash);
+      if (entries.length === 0 || entries.length > MAX_BASH_PATTERNS) errors.push(`"permissions.bash" needs 1 to ${MAX_BASH_PATTERNS} patterns`);
+      for (const [pattern, action] of entries) {
+        if (!pattern.trim() || pattern.length > 200) errors.push(`"permissions.bash" pattern "${pattern.slice(0, 40)}" must be 1 to 200 characters`);
+        if (!ACTIONS.includes(action)) errors.push(`"permissions.bash.${pattern}" must be one of: ${ACTIONS.join(", ")}`);
+      }
+      out.bash = Object.fromEntries(entries);
+    } else {
+      errors.push(`"permissions.bash" must be one of: ${ACTIONS.join(", ")}, or an object of patterns`);
+    }
+  }
+  // Codex approves by policy, not per tool or command, so an override couldn't be honoured
+  // there (and a "deny" would silently not apply).
+  if (agents.includes("cosmodex") && (out.edit || out.bash)) {
+    errors.push(`"permissions.edit" and "permissions.bash" can't be applied to cosmodex; use "permissions.preset" only`);
+  }
+  return out;
 }
 
 /** The engine behind an agent, e.g. "opencosmo" -> "opencode". */

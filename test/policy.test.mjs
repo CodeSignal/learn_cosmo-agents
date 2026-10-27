@@ -142,3 +142,63 @@ test("only enabled engines get policy files; keys never appear in any file", () 
 test("toml writer: scalars first, nested tables, quoting", () => {
   assert.equal(toToml({ a: "x", b: true, c: ["1", "2"], t: { "k.y": { n: 1 } } }), 'a = "x"\nb = true\nc = ["1", "2"]\n\n[t."k.y"]\nn = 1');
 });
+
+test("permissions default to each engine's own behaviour", () => {
+  assert.deepEqual(valid({ agents: ["opencosmo"] }).permissions, { preset: "engine-default" });
+  const doc = JSON.parse(file(renderPolicy(valid({ agents: ["opencosmo"] }), ENV), ROOT.opencode));
+  assert.equal(doc.permission.edit, undefined);
+  assert.equal(doc.permission.bash, undefined);
+});
+
+test("permissions: preset, overrides and patterns are validated together", () => {
+  const r = validateTaskConfig({ agents: ["opencosmo"], permissions: { preset: "sometimes", edit: "maybe", bash: { "": "ask", "rm *": "nope" }, x: 1 } });
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.length >= 5, r.errors.join("\n"));
+});
+
+test("Cosmodex takes a preset only (a per-command deny could not be honoured there)", () => {
+  const r = validateTaskConfig({ agents: ["opencosmo", "cosmodex"], permissions: { preset: "ask", bash: { "rm *": "deny" } } });
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(), /cosmodex/);
+  assert.equal(valid({ agents: ["cosmodex"], permissions: { preset: "ask" } }).permissions.preset, "ask");
+});
+
+test("OpenCode: the ask preset prompts for edits and commands; overrides and patterns keep their order", () => {
+  const ask = JSON.parse(file(renderPolicy(valid({ agents: ["opencosmo"], permissions: { preset: "ask" } }), ENV), ROOT.opencode));
+  assert.equal(ask.permission.edit, "ask");
+  assert.equal(ask.permission.bash, "ask");
+  assert.equal(ask.permission.external_directory, "deny");
+  assert.equal(ask.permission.webfetch, "deny");
+  const custom = valid({ agents: ["opencosmo"], permissions: { preset: "allow", bash: { "*": "ask", "git status*": "allow", "rm *": "deny" } } });
+  const doc = JSON.parse(file(renderPolicy(custom, ENV), ROOT.opencode));
+  assert.equal(doc.permission.edit, "allow");
+  assert.deepEqual(Object.entries(doc.permission.bash), [["*", "ask"], ["git status*", "allow"], ["rm *", "deny"]]);
+});
+
+const claudeRules = (permissions) => JSON.parse(file(renderPolicy(valid({ agents: ["cosmo-code"], permissions }), ENV), ROOT.claude)).permissions;
+
+test("Claude Code: ask preset lists edits and Bash under ask; allow preset under allow", () => {
+  const ask = claudeRules({ preset: "ask" });
+  assert.deepEqual(ask.ask, ["Edit", "Write", "NotebookEdit", "Bash"]);
+  assert.deepEqual(ask.allow, []);
+  assert.deepEqual(claudeRules({ preset: "allow" }).allow, ["Edit", "Write", "NotebookEdit", "Bash"]);
+  assert.deepEqual(claudeRules({}).ask, []);
+});
+
+test("Claude Code: an allowed command under 'ask everything' relies on the default mode, not a Bash ask rule", () => {
+  const r = claudeRules({ preset: "ask", bash: { "*": "ask", "git status*": "allow" } });
+  assert.ok(!r.ask.includes("Bash"));
+  assert.deepEqual(r.allow, ["Bash(git status*)"]);
+  const r2 = claudeRules({ preset: "allow", bash: { "*": "allow", "rm *": "ask", "curl *": "deny" } });
+  assert.ok(r2.allow.includes("Bash"));
+  assert.deepEqual(r2.ask, ["Bash(rm *)"]);
+  assert.ok(r2.deny.includes("Bash(curl *)"));
+  assert.throws(() => renderPolicy(valid({ agents: ["cosmo-code"], permissions: { bash: { "*": "deny", "ls*": "allow" } } }), ENV), RenderError);
+});
+
+test("Codex: presets map to approval policies", () => {
+  const policy = (preset) => file(renderPolicy(valid({ agents: ["cosmodex"], permissions: { preset } }), ENV, { codexBundledCatalog: CATALOG }), ROOT.codexRequirements).match(/^allowed_approval_policies = .*$/m)[0];
+  assert.equal(policy("engine-default"), 'allowed_approval_policies = ["on-request"]');
+  assert.equal(policy("ask"), 'allowed_approval_policies = ["untrusted"]');
+  assert.equal(policy("allow"), 'allowed_approval_policies = ["never"]');
+});

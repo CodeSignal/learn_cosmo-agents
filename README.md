@@ -47,8 +47,9 @@ The task ships `.codesignal/agent-sim.json`. A task can only narrow what
   "terminal": "off",
   "sandbox": true,
   "webTools": false,
+  "permissions": { "preset": "ask", "bash": { "*": "ask", "npm test*": "allow" } },
   "models": {
-    "cosmodex": { "allowed": ["gpt-5.6-terra"] }
+    "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"] }
   }
 }
 ```
@@ -62,6 +63,13 @@ The task ships `.codesignal/agent-sim.json`. A task can only narrow what
 | `sandbox` | `true` | Engine sandboxes for agent commands (needs user namespaces) |
 | `webTools` | `false` | Web search and fetch tools |
 | `models.<agent>.allowed` | all pinned | Models the agent may use; `default` picks the starting one |
+| `permissions.preset` | `"engine-default"` | `"engine-default"`: each engine's own behaviour; `"ask"`: approve every edit and shell command; `"allow"`: no prompts |
+| `permissions.edit` | from preset | `"ask"`, `"allow"` or `"deny"` for file edits |
+| `permissions.bash` | from preset | One action for all shell commands, or `{ "<pattern>": action }` with `*` wildcards, later patterns winning |
+
+Permission prompts look and work exactly as in the original app; every answer (once, always,
+reject) is recorded in the event log. Cosmodex takes `permissions.preset` only: Codex approves by
+policy, so per-command rules can't be applied there and are refused rather than ignored.
 
 ## Setup in a task
 

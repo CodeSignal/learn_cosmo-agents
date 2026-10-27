@@ -34,6 +34,7 @@ R() { as_runner ". ~/.profile; $1"; }
 
 docker exec -i -u runner -w /usercode/FILESYSTEM "$NAME" sh -c 'mkdir -p .codesignal && cat > .codesignal/agent-sim.json' <<'EOF'
 { "agents": ["opencosmo", "cosmodex", "cosmo-code"], "default": "opencosmo",
+  "permissions": { "preset": "ask" },
   "models": { "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"] },
               "cosmodex": { "allowed": ["gpt-5.6-terra"] },
               "cosmo-code": { "allowed": ["claude-sonnet-5-5"] } } }
@@ -97,8 +98,22 @@ check O2 "the OpenCosmo UI is served" \
   as_runner 'curl -sf localhost:3000/agents/opencosmo/ | grep -q "<div id=\"root\""'
 check O3 "the engine refuses requests without the gateway's password" \
   as_runner '[ "$(curl -s -o /dev/null -w %{http_code} 127.0.0.1:4096/global/health)" = 401 ] && curl -sf '$G'/global/health | grep -q "\"healthy\":true"'
-check O4 "a prompt runs through the gateway and the agent's tool call lands in the workspace" \
-  as_runner 'sid=$(curl -sf -X POST "'$G'/session?'$D'" -H "content-type: application/json" -d "{}" | jq -r .id) && curl -sf -X POST "'$G'/session/$sid/message?'$D'" -H "content-type: application/json" -d "{\"parts\":[{\"type\":\"text\",\"text\":\"RUN: echo made-by-agent > made.txt\"}],\"model\":{\"providerID\":\"anthropic\",\"modelID\":\"claude-sonnet-5-5\"}}" >/dev/null && sleep 1 && grep -q made-by-agent /usercode/FILESYSTEM/made.txt'
+# Send a prompt without waiting for the turn (it may stop at a permission prompt).
+prompt() { # prompt <text> -> prints the session id
+  docker exec -u runner $NAME sh -c "sid=\$(curl -sf -X POST '$G/session?$D' -H content-type:application/json -d {} | jq -r .id) && curl -sf -X POST \"$G/session/\$sid/prompt_async?$D\" -H content-type:application/json -d '{\"parts\":[{\"type\":\"text\",\"text\":\"$1\"}],\"model\":{\"providerID\":\"anthropic\",\"modelID\":\"claude-sonnet-5-5\"}}' >/dev/null && echo \$sid"
+}
+pending() { # pending <session id> -> prints the id of its pending permission request, waiting up to 15 s
+  docker exec -u runner $NAME sh -c "for i in \$(seq 30); do p=\$(curl -sf '$G/permission?$D' | jq -r '[.[] | select(.sessionID==\"$1\")][0].id // empty'); [ -n \"\$p\" ] && echo \$p && exit 0; sleep 0.5; done; exit 1"
+}
+reply() { # reply <permission id> <once|always|reject>
+  docker exec -u runner $NAME curl -sf -X POST "$G/permission/$1/reply?$D" -H content-type:application/json -d "{\"reply\":\"$2\"}" >/dev/null
+}
+p1() { sid=$(prompt "RUN: echo approved > approved.txt") && p=$(pending "$sid") && ! docker exec $NAME test -e /usercode/FILESYSTEM/approved.txt && reply "$p" once && sleep 2 && docker exec $NAME grep -q approved /usercode/FILESYSTEM/approved.txt; }
+p2() { sid=$(prompt "RUN: echo rejected > rejected.txt") && p=$(pending "$sid") && reply "$p" reject && sleep 2 && ! docker exec $NAME test -e /usercode/FILESYSTEM/rejected.txt; }
+check P1 "with the ask preset a shell command waits for the candidate's approval, then runs" p1
+check P2 "a rejected command does not run" p2
+check P3 "both answers are in the event log" \
+  as_root '[ "$(grep -c "\"type\":\"permission-reply\"" /var/lib/agentsim/events/events.jsonl)" -ge 2 ] && grep -q "\"reply\":\"reject\"" /var/lib/agentsim/events/events.jsonl'
 check R1 "a model the key allows but the task doesn't is refused by the engine (never reaches the proxy)" \
   sh -c "docker exec -u runner $NAME sh -c 'sid=\$(curl -sf -X POST \"$G/session?$D\" -H content-type:application/json -d {} | jq -r .id); curl -s -X POST \"$G/session/\$sid/message?$D\" -H content-type:application/json -d \"{\\\"parts\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"hi\\\"}],\\\"model\\\":{\\\"providerID\\\":\\\"anthropic\\\",\\\"modelID\\\":\\\"claude-haiku-5-5\\\"}}\"' >/dev/null; sleep 1; ! docker exec $NAME grep -q claude-haiku-5-5 /tmp/stub.jsonl"
 check O5 "configuration, credentials, MCP, sharing and deleting sessions are refused and logged" \

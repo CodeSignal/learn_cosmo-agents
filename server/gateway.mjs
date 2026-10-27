@@ -54,9 +54,14 @@ export class RouteGateway {
  * long responses pass through untouched. `headers` are added or overridden upstream (e.g. the
  * engine's auth), and hop-by-hop headers are dropped.
  */
-export function proxyHttp(req, res, { target, path, headers = {} }) {
+export function proxyHttp(req, res, { target, path, headers = {}, body }) {
   const url = new URL(path, target);
   const forward = { ...req.headers, ...headers, host: url.host };
+  if (body) {
+    // An already-read request body (see readBody); sent as-is with its real length.
+    delete forward["transfer-encoding"];
+    forward["content-length"] = String(body.length);
+  }
   for (const h of ["connection", "keep-alive", "proxy-authorization", "te", "trailer", "upgrade"]) delete forward[h];
   const upstream = http.request(url, { method: req.method, headers: forward }, (up) => {
     res.writeHead(up.statusCode || 502, up.headers);
@@ -66,8 +71,26 @@ export function proxyHttp(req, res, { target, path, headers = {} }) {
     if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: `engine unavailable: ${e.code || e.message}` }));
   });
-  req.pipe(upstream);
+  if (body) upstream.end(body);
+  else req.pipe(upstream);
   res.on("close", () => upstream.destroy());
+}
+
+/** Read a small request body (for gateways that log what a request says), up to `limit` bytes. */
+export function readBody(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new Error("request body too large"));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
 }
 
 /** Forward a WebSocket upgrade to `target`, then splice the two sockets together. */

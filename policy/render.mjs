@@ -50,6 +50,7 @@ function opencode(config, env, errors) {
     provider[id] = { whitelist: models, options: { baseURL } };
   }
   const deny = config.webTools ? {} : { webfetch: "deny", websearch: "deny" };
+  const asked = opencodePermissions(config.permissions);
   return {
     $schema: "https://opencode.ai/config.json",
     autoupdate: false,
@@ -58,16 +59,55 @@ function opencode(config, env, errors) {
     model,
     small_model: model,
     provider,
-    permission: { ...deny, external_directory: "deny" },
+    permission: { ...asked, ...deny, external_directory: "deny" },
     mcp: {},
   };
 }
+
+const PRESET_ACTION = { ask: "ask", allow: "allow" };
+
+/** OpenCode `permission` entries for edits and shell commands (later bash patterns win). */
+export function opencodePermissions({ preset, edit, bash }) {
+  const out = {};
+  const base = PRESET_ACTION[preset];
+  if (edit ?? base) out.edit = edit ?? base;
+  if (bash ?? base) out.bash = bash ?? base;
+  return out;
+}
+
+const EDIT_TOOLS = ["Edit", "Write", "NotebookEdit"];
+
+/**
+ * Claude Code rule lists for edits and shell commands. Claude applies deny, then ask, then allow
+ * whatever the order, and its default mode already asks before edits and commands, so "ask" for
+ * everything is expressed by leaving the rule out when an allow exception needs to win.
+ */
+export function claudePermissions({ preset, edit, bash }, errors) {
+  const lists = { allow: [], ask: [], deny: [] };
+  const base = PRESET_ACTION[preset];
+  const editAction = edit ?? base;
+  if (editAction) lists[editAction].push(...EDIT_TOOLS);
+  const bashRules = typeof bash === "object" ? bash : { "*": bash ?? base };
+  const all = bashRules["*"];
+  const exceptions = Object.entries(bashRules).filter(([p]) => p !== "*");
+  if (all === "deny" && exceptions.some(([, a]) => a !== "deny")) {
+    errors.push(`cosmo-code can't allow or ask for some commands when "permissions.bash" "*" is "deny"`);
+  }
+  if (all === "deny" || all === "allow" || (all === "ask" && !exceptions.some(([, a]) => a === "allow"))) {
+    lists[all].push("Bash");
+  }
+  for (const [pattern, action] of exceptions) lists[action].push(`Bash(${pattern})`);
+  return lists;
+}
+
+/** Codex approval policies a preset allows: on-request is Codex's own default. */
+const CODEX_APPROVAL = { "engine-default": ["on-request"], ask: ["untrusted"], allow: ["never"] };
 
 function codexRequirements(config, env, errors) {
   const baseUrl = (env.OPENAI_BASE_URL || "").trim();
   if (!baseUrl) errors.push("cosmodex is enabled but OPENAI_BASE_URL is not set");
   return {
-    allowed_approval_policies: ["on-request"],
+    allowed_approval_policies: CODEX_APPROVAL[config.permissions.preset],
     allowed_sandbox_modes: config.sandbox ? ["read-only", "workspace-write"] : ["read-only", "workspace-write", "danger-full-access"],
     allowed_web_search_modes: config.webTools ? ["disabled", "cached", "live"] : ["disabled"],
     allowed_login_methods: ["api"],
@@ -104,14 +144,17 @@ export function codexCatalog(bundled, config, errors) {
   return { ...bundled, models: selected };
 }
 
-function claude(config) {
+function claude(config, errors) {
   const { allowed, default: model } = config.models["cosmo-code"];
+  const rules = claudePermissions(config.permissions, errors);
   const settings = {
     model,
     availableModels: allowed,
     enforceAvailableModels: true,
     permissions: {
-      deny: config.webTools ? [] : ["WebSearch", "WebFetch"],
+      allow: rules.allow,
+      ask: rules.ask,
+      deny: [...rules.deny, ...(config.webTools ? [] : ["WebSearch", "WebFetch"])],
       disableBypassPermissionsMode: "disable",
     },
     allowManagedPermissionRulesOnly: true,
@@ -169,7 +212,7 @@ export function renderPolicy(config, env = {}, inputs = {}, pins = PINS) {
   }
   if (engines.has("claude")) {
     dirs.push("/etc/claude-code");
-    files.push({ path: ROOT.claude, content: json(claude(config)) });
+    files.push({ path: ROOT.claude, content: json(claude(config, errors)) });
     engineEnv.claude = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
   }
 

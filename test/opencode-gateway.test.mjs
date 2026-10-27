@@ -106,3 +106,31 @@ test("undocumented routes get a 404 and stay out of the event log", async (t) =>
   assert.equal(s.events.length, 0);
   assert.equal((await fetch(`${s.base}/tui/submit-prompt`, { method: "POST", body: "{}" })).status, 404);
 });
+
+test("permission answers are logged with the reply and reach the engine with the same body", async (t) => {
+  const bodies = [];
+  // A second engine that records bodies.
+  const engine = http.createServer((req, res) => {
+    let b = "";
+    req.on("data", (c) => (b += c));
+    req.on("end", () => {
+      bodies.push(b);
+      res.end("{}");
+    });
+  });
+  const target = await listen(engine);
+  const events = [];
+  const handler = createOpenCodeGateway({ target, password: "pw", workspace: "/usercode/FILESYSTEM", terminal: false, events: { record: (type, d) => events.push({ type, ...d }) } });
+  const front = http.createServer((req, res) => handler(req, res, req.url));
+  const base = await listen(front);
+  t.after(() => {
+    engine.close();
+    front.close();
+  });
+  for (const path of ["/permission/per_1/reply", "/session/s1/permissions/per_2", "/api/session/s1/permission/per_3/reply"]) {
+    const res = await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reply: "once" }) });
+    assert.equal(res.status, 200);
+  }
+  assert.deepEqual(bodies, Array(3).fill('{"reply":"once"}'));
+  assert.deepEqual(events.map((e) => [e.type, e.reply]), Array(3).fill(["permission-reply", "once"]));
+});
