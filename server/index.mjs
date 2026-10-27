@@ -9,6 +9,7 @@ import { createEventLog } from "./events.mjs";
 import { createOpenCodeGateway } from "./gateways/opencode.mjs";
 import { createCodexGateway } from "./gateways/codex.mjs";
 import { codexCeilings } from "../policy/render.mjs";
+import { workspaceDiff, SCOPES } from "./workspace-git.mjs";
 import { PINS, engineOf, validateTaskConfig } from "../policy/schema.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -92,7 +93,7 @@ function serveAgent(res, agent, rest) {
  * @param policy   the applied task config (/etc/agentsim/policy.json)
  * @param gateways map agent -> handler(req, res, subpath); agents without one answer 503
  */
-export function createServer({ policy, events, gateways = {} }) {
+export function createServer({ policy, events, gateways = {}, workspace = process.env.WORKSPACE || "/usercode/FILESYSTEM" }) {
   const state = { active: policy.default };
   events.record("session-start", { agents: policy.agents, active: state.active, allowSwitch: policy.allowSwitch });
 
@@ -115,6 +116,11 @@ export function createServer({ policy, events, gateways = {} }) {
     try {
       if (pathname === "/api/health") return sendJson(res, 200, { ok: true });
       if (pathname === "/api/session" && req.method === "GET") return sendJson(res, 200, session());
+      if (pathname === "/api/workspace/diff" && req.method === "GET") {
+        const scope = new URL(req.url, "http://localhost").searchParams.get("scope");
+        if (!SCOPES.includes(scope)) return sendJson(res, 400, { error: `scope must be one of: ${SCOPES.join(", ")}` });
+        return sendJson(res, 200, await workspaceDiff(workspace, scope));
+      }
       if (pathname === "/api/switch" && req.method === "POST") {
         let agent;
         try {

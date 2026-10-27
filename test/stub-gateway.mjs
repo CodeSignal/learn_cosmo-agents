@@ -130,13 +130,66 @@ function codeModeExec(input) {
   return null;
 }
 
+/** Whether Codex offered a plain function tool by this name (e.g. request_user_input in plan mode). */
+function offersFunction(input, name) {
+  return input.some((item) => item?.type === "additional_tools" && (item.tools ?? []).some((g) => (g.tools ?? [g]).some((t) => t.type === "function" && t.name === name)));
+}
+
+const STUB_PLAN = [
+  "Here is the plan.",
+  "",
+  "<proposed_plan>",
+  "# Fix add() in calc.py",
+  "",
+  "## Summary",
+  "`add` subtracts instead of adding.",
+  "",
+  "## Steps",
+  "1. Change `return a - b` to `return a + b` in `calc.py`.",
+  "2. Add a test for `add(2, 3) == 5`.",
+  "</proposed_plan>",
+].join("\n");
+
+/**
+ * Codex scripts. RUN: <cmd> runs a command; ADD: <path> <text> creates a file; REPLACE: <path>
+ * "<old line>" => "<new line>" edits one line (quotes keep the indentation exact); ASK asks a question (plan mode); PLANTEXT answers with a plan.
+ */
+function codexScript(input, user) {
+  const exec = (code) => ({ kind: "custom", name: "exec", input: code });
+  const patch = (body) => exec(`await tools.apply_patch(${JSON.stringify(`*** Begin Patch\n${body}\n*** End Patch\n`)});`);
+  if (!codeModeExec(input) || user === null) return null;
+  let m;
+  if ((m = /RUN:\s*([\s\S]+)$/m.exec(user))) return exec(`await tools.exec_command(${JSON.stringify({ cmd: m[1].trim() })});`);
+  if ((m = /ADD:\s*(\S+)\s+([\s\S]+)$/m.exec(user))) return patch(`*** Add File: ${m[1]}\n+${m[2].trim()}`);
+  if ((m = /REPLACE:\s*(\S+)\s+"([^"]*)"\s*=>\s*"([^"]*)"/.exec(user))) return patch(`*** Update File: ${m[1]}\n@@\n-${m[2]}\n+${m[3]}`);
+  if (/\bASK\b/.test(user) && offersFunction(input, "request_user_input")) {
+    return {
+      kind: "tool",
+      name: "request_user_input",
+      args: {
+        questions: [
+          {
+            id: "approach",
+            header: "Approach",
+            question: "How should add() be fixed?",
+            options: [
+              { label: "Fix the operator (Recommended)", description: "Change - to + and keep the signature." },
+              { label: "Rewrite the function", description: "Replace add() with a new implementation." },
+            ],
+          },
+        ],
+      },
+    };
+  }
+  if (/\bPLANTEXT\b/.test(user)) return { kind: "text", text: STUB_PLAN };
+  return null;
+}
+
 function responses(req, res, body) {
   const input = Array.isArray(body.input) ? body.input : [{ role: "user", content: body.input }];
   let p = plan(body.model, lastUserText(input), body.tools);
-  const run = /RUN:\s*([\s\S]+)$/m.exec(lastUserText(input) || "");
-  if (p.kind === "text" && run && codeModeExec(input)) {
-    p = { kind: "custom", name: "exec", input: `await tools.exec_command(${JSON.stringify({ cmd: run[1].trim() })});` };
-  }
+  const scripted = p.kind === "text" ? codexScript(input, lastUserText(input)) : null;
+  if (scripted) p = scripted;
   const respId = id("resp");
   const item = p.kind === "tool"
     ? { type: "function_call", id: id("fc"), call_id: id("call"), name: p.name, arguments: JSON.stringify(p.args), status: "completed" }

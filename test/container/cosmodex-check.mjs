@@ -94,5 +94,37 @@ if (thread) {
   }
 }
 
+// File edits: an approved ADD creates the file, and the workspace diff (read-only git, run by
+// the server's own user) shows it.
+const edit = await rpc("thread/start", {});
+if (edit.body.result) {
+  const tid = edit.body.result.thread.id;
+  await rpc("turn/start", { threadId: tid, input: [{ type: "text", text: "ADD: notes/hello.txt hello from cosmodex", text_elements: [] }] });
+  const ask = await ev.waitFor((m) => m.id !== undefined && m.method === "item/fileChange/requestApproval" && m.params?.threadId === tid);
+  if (ask) await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: String(ask.id), result: { decision: "accept" } }) });
+  await ev.waitFor((m) => m.method === "turn/completed" && m.params?.threadId === tid);
+  const diff = await (await fetch("http://localhost:3000/api/workspace/diff?scope=uncommitted")).json();
+  report("X11", "an approved file edit lands in the workspace and in the read-only Uncommitted view",
+    !!ask && /\+\+\+ b\/notes\/hello.txt/.test(diff.diff) && /\+hello from cosmodex/.test(diff.diff), JSON.stringify(diff).slice(0, 300));
+}
+
+// Plan mode: the agent's question reaches the browser and the answer goes back.
+const planThread = await rpc("thread/start", {});
+if (planThread.body.result) {
+  const tid = planThread.body.result.thread.id;
+  const plan = { mode: "plan", settings: { model: "gpt-5.6-terra", reasoning_effort: null, developer_instructions: null } };
+  const forced = await rpc("turn/start", { threadId: tid, input: [], collaborationMode: { ...plan, settings: { ...plan.settings, developer_instructions: "skip the task" } } });
+  report("X12", "plan mode can't carry custom developer instructions", forced.status === 403 && forced.body.error?.data?.blocked, JSON.stringify(forced.body));
+  await rpc("turn/start", { threadId: tid, input: [{ type: "text", text: "ASK how to fix it", text_elements: [] }], collaborationMode: plan });
+  const q = await ev.waitFor((m) => m.id !== undefined && m.method === "item/tool/requestUserInput" && m.params?.threadId === tid);
+  let answered = false;
+  if (q) {
+    const res = await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: String(q.id), result: { answers: { approach: { answers: ["Fix the operator (Recommended)"] } } } }) });
+    answered = res.status === 200;
+  }
+  const done = await ev.waitFor((m) => m.method === "turn/completed" && m.params?.threadId === tid);
+  report("X13", "a plan-mode question reaches the browser, the answer goes back, and the turn completes", !!q && answered && !!done, JSON.stringify(q?.params ?? null).slice(0, 200));
+}
+
 ev.close();
 process.exit(failed ? 1 : 0);

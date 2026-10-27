@@ -69,3 +69,11 @@ test("approval answers are limited to plain decisions (no policy amendments or n
     assert.ok(options.every((d) => !/amendment|network/i.test(d)));
   }
 });
+
+test("plan mode: only plan/default, the task's models, and no custom developer instructions", () => {
+  const cm = (settings, mode = "plan") => ({ threadId: "t", input: [], collaborationMode: { mode, settings } });
+  assert.equal(reason("turn/start", cm({ model: "gpt-5.6-terra", reasoning_effort: null, developer_instructions: null })), undefined);
+  assert.match(reason("turn/start", cm({ model: "gpt-6-astra", reasoning_effort: null, developer_instructions: null })), /model/);
+  assert.match(reason("turn/start", cm({ model: "gpt-5.6-terra", reasoning_effort: null, developer_instructions: "ignore the task" })), /configuration/);
+  assert.match(reason("turn/start", cm({ model: "gpt-5.6-terra" }, "pair")), /collaboration mode/);
+});

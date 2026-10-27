@@ -44,6 +44,14 @@ export function checkParams(method, params = {}, ctx) {
       if ((sp.writableRoots ?? []).some((r) => !inside(r))) return { reason: "folders outside the task's workspace" };
     }
     if (has("cwd") && !inside(p.cwd)) return { reason: "folders outside the task's workspace" };
+    if (has("collaborationMode")) {
+      const cm = p.collaborationMode;
+      if (!["plan", "default"].includes(cm?.mode)) return { reason: "the collaboration mode" };
+      if (cm.settings?.developer_instructions != null) return { reason: "configuration" };
+      if (cm.settings?.model != null && !ctx.models.includes(cm.settings.model)) {
+        return { reason: `the model (${String(cm.settings.model).slice(0, 40)} isn't available in this task)` };
+      }
+    }
     if (THREAD_SETUP.has(method) && !has("cwd")) p.cwd = ctx.workspace;
   }
   if (method === "turn/start" || method === "turn/steer") {
@@ -112,7 +120,14 @@ class EngineLink {
         },
         reject: () => ws.close(),
       });
-      this.send({ jsonrpc: "2.0", id, method: "initialize", params: { clientInfo: { name: "cosmodex", title: "Cosmodex", version: CODEX_VERSION } } });
+      // The experimental API carries plan mode and questions; experimental methods the gateway
+      // hasn't classified stay refused.
+      this.send({
+        jsonrpc: "2.0",
+        id,
+        method: "initialize",
+        params: { clientInfo: { name: "cosmodex", title: "Cosmodex", version: CODEX_VERSION }, capabilities: { experimentalApi: true } },
+      });
     });
     ws.addEventListener("message", (event) => {
       let msg;
