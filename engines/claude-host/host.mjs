@@ -29,6 +29,7 @@ const ARCHIVED = "archived";
 // Plan mode writes the plan to a file here; ExitPlanMode itself carries no plan.
 const PLANS = path.join(os.homedir(), ".claude", "plans");
 const MAX_PLAN = 200_000;
+const MANAGED = "/etc/claude-code/managed-settings.json";
 
 if (!TOKEN) {
   console.error("COSMO_CODE_TOKEN is required");
@@ -123,8 +124,10 @@ function openSession(sessionId, settings, { resume = false, resumeAt } = {}) {
     try {
       for await (const message of q) {
         notify("session/message", { sessionId, message });
+        // A turn runs from the prompt to its result; status and other system messages can come
+        // after the result, so only the turn's own traffic counts as running.
         if (message.type === "result") setState("idle");
-        else if (message.type !== "system" || message.subtype === "status") setState("running");
+        else if (message.type === "assistant" || message.type === "stream_event") setState("running");
       }
     } catch (error) {
       notify("session/message", { sessionId, message: { type: "host_error", error: String(error?.message ?? error) } });
@@ -203,6 +206,16 @@ function pick(params = {}) {
 
 const rpcError = (code, message) => Object.assign(new Error(message), { rpc: { code, message } });
 
+/** The mode sessions start in, as the managed settings say (the prompt bar shows it up front). */
+function managedDefaultMode() {
+  try {
+    const mode = JSON.parse(fs.readFileSync(MANAGED, "utf8")).permissions?.defaultMode;
+    return MODES.has(mode) ? mode : "default";
+  } catch {
+    return "default";
+  }
+}
+
 let info;
 /** What the engine offers (commands, models, agents, output styles), asked once. */
 async function engineInfo() {
@@ -230,7 +243,7 @@ async function engineInfo() {
 
 const handlers = {
   async initialize() {
-    return { workspace: WORKSPACE, modes: [...MODES], efforts: [...EFFORTS], ...(await engineInfo()) };
+    return { workspace: WORKSPACE, modes: [...MODES], efforts: [...EFFORTS], defaultMode: managedDefaultMode(), ...(await engineInfo()) };
   },
   async "session/list"() {
     const sessions = await listSessions({ dir: WORKSPACE });

@@ -144,6 +144,8 @@ echo
 echo "-- Cosmo Code (Claude engine through the Agent SDK)"
 check C0 "the engine host runs as the session user on loopback only" \
   as_root '[ "$(ps -o user= -p $(pgrep -f "claude-host/host.mjs" | head -1))" = runner ] && grep -q "0100007F:11F8 00000000:0000 0A" /proc/net/tcp && ! grep -q "00000000:11F8 00000000:0000 0A" /proc/net/tcp'
+check C10 "the Cosmo Code UI is served and reported available" \
+  as_runner 'curl -sf localhost:3000/agents/cosmo-code/ | grep -q "<title>Cosmo Code</title>" && curl -sf localhost:3000/api/session | jq -e ".agents[] | select(.id==\"cosmo-code\") | .available" >/dev/null'
 out=$(docker exec -u runner "$NAME" node /opt/cosmo-code-check.mjs 2>&1); echo "$out"
 FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL')))
 check C9 "Cosmo Code refusals and approval answers are in the event log" \
