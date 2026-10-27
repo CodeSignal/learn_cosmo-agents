@@ -11,12 +11,15 @@ COPY vite.config.js ./
 COPY client ./client
 RUN npm run build
 
-# OpenCosmo: the vendored OpenCode web app, built with the Bun version upstream pins.
-FROM oven/bun:1.3.14 AS opencosmo
+# Agent UIs: the vendored OpenCode workspace (UI kit, OpenCosmo) with our apps composed in as
+# packages, built with the Bun version upstream pins.
+FROM oven/bun:1.3.14 AS ui
 WORKDIR /work
 COPY vendor/opencode ./
-RUN bun install --filter "@opencode-ai/app" --frozen-lockfile
+COPY apps/cosmodex ./packages/cosmodex
+RUN bun install --filter "@opencode-ai/app" --filter "@cosmo/cosmodex" --frozen-lockfile
 RUN cd packages/app && OPENCOSMO_BASE=/agents/opencosmo/ VITE_ENGINE_PATH=/engine/opencosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build
+RUN cd packages/cosmodex && COSMODEX_BASE=/agents/cosmodex/ VITE_ENGINE_PATH=/engine/cosmodex VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
 
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -43,7 +46,8 @@ COPY policy /opt/agentsim/policy
 COPY root /opt/agentsim/root
 COPY scripts /opt/agentsim/scripts
 COPY --from=build /src/dist /opt/agentsim/dist
-COPY --from=opencosmo /work/packages/app/dist /opt/agentsim/dist-agents/opencosmo
+COPY --from=ui /work/packages/app/dist /opt/agentsim/dist-agents/opencosmo
+COPY --from=ui /work/packages/cosmodex/dist /opt/agentsim/dist-agents/cosmodex
 RUN mkdir -p /opt/agentsim/bin \
     && mv /opt/agentsim/root/bin/* /opt/agentsim/bin/ && rmdir /opt/agentsim/root/bin \
     && install -m 0440 -o root -g root /opt/agentsim/root/sudoers /etc/sudoers.d/agentsim \

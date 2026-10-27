@@ -132,6 +132,8 @@ echo
 echo "-- Cosmodex (Codex engine)"
 check X0 "codex app-server runs as the session user on loopback only" \
   as_root '[ "$(ps -o user= -p $(pgrep -f "codex app-server" | head -1))" = runner ] && grep -q "0100007F:1194 00000000:0000 0A" /proc/net/tcp && ! grep -q "00000000:1194 00000000:0000 0A" /proc/net/tcp'
+check X10 "the Cosmodex UI is served and reported available" \
+  as_runner 'curl -sf localhost:3000/agents/cosmodex/ | grep -q "<title>Cosmodex</title>" && curl -sf localhost:3000/api/session | jq -e ".agents[] | select(.id==\"cosmodex\") | .available" >/dev/null'
 out=$(docker exec -u runner "$NAME" node /opt/cosmodex-check.mjs 2>&1); echo "$out"
 FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL')))
 check X9 "Cosmodex refusals and approval answers are in the event log" \

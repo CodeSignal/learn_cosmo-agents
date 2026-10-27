@@ -88,7 +88,20 @@ class EngineLink {
       return this.retry();
     }
     this.ws = ws;
+    // Node's WebSocket can sit in CONNECTING forever when nothing listens yet (the engine starts
+    // alongside the server), so an attempt that hasn't opened in time is dropped and retried.
+    const opening = setTimeout(() => {
+      if (ws.readyState === 1) return;
+      this.ws = null;
+      try {
+        ws.close();
+      } catch {
+        /* never opened */
+      }
+      this.retry();
+    }, 3000);
     ws.addEventListener("open", () => {
+      clearTimeout(opening);
       const id = `init-${this.nextId++}`;
       this.pending.set(id, {
         resolve: () => {
@@ -116,6 +129,7 @@ class EngineLink {
       this.onMessage(msg);
     });
     ws.addEventListener("close", () => {
+      clearTimeout(opening);
       if (this.ws !== ws) return;
       this.ready = false;
       for (const [id, { reject }] of this.pending) {
@@ -158,7 +172,9 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
   const ctx = { workspace: workspace.replace(/\/+$/, ""), ...ceilings };
   const gateway = new RouteGateway({ name: "codex", rules: [], events });
   const clients = new Set();
-  const openRequests = new Map(); // engine request id -> the message, until answered
+  // Engine requests awaiting the candidate, keyed by String(id): the browser may send the id back as
+  // a string; the engine is always answered with its own id.
+  const openRequests = new Map();
   const broadcast = (msg) => {
     const line = `data: ${JSON.stringify(msg)}\n\n`;
     for (const res of clients) res.write(line);
@@ -175,13 +191,13 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
       if (msg.id !== undefined && msg.method) {
         // The engine asks the candidate something.
         if (DECISIONS[msg.method] || USER_INPUT.has(msg.method)) {
-          openRequests.set(msg.id, msg);
+          openRequests.set(String(msg.id), msg);
           return broadcast(msg);
         }
         if (msg.method === "item/permissions/requestApproval") return refuseRequest(msg, "extra permissions");
         return refuseRequest(msg, msg.method.startsWith("account/") ? "signing in" : "this request");
       }
-      if (msg.method === "serverRequest/resolved") openRequests.delete(msg.params?.requestId);
+      if (msg.method === "serverRequest/resolved") openRequests.delete(String(msg.params?.requestId));
       broadcast(msg);
     },
   });
@@ -225,7 +241,7 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
     } catch {
       return send(res, 400, { error: { code: -32700, message: "Parse error" } });
     }
-    const asked = openRequests.get(answer?.id);
+    const asked = openRequests.get(String(answer?.id));
     if (!asked) return send(res, 404, { error: { code: -32602, message: "No open request with that id" } });
     if (DECISIONS[asked.method]) {
       const value = answer.result?.decision;
@@ -235,7 +251,7 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
       }
       events?.record("permission-reply", { gateway: "codex", agent, method: asked.method, reply: value });
     }
-    openRequests.delete(asked.id);
+    openRequests.delete(String(asked.id));
     // Only the decision itself goes to the engine; free-form answers (questions) pass as given.
     link.answer(asked.id, DECISIONS[asked.method] ? { decision: answer.result.decision } : (answer.result ?? {}), undefined);
     send(res, 200, {});
