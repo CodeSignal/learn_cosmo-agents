@@ -181,6 +181,30 @@ button:disabled {
 .cx-thread-row[data-indent] {
   padding-left: 30px;
 }
+.cx-thread-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
+}
+.cx-pin-mark {
+  flex: none;
+  color: var(--v2-text-text-muted);
+}
+.cx-row-actions {
+  display: none;
+  gap: 2px;
+}
+.cx-thread-row:hover .cx-row-actions,
+.cx-thread-row:focus-within .cx-row-actions {
+  display: inline-flex;
+}
+.cx-thread-row:hover .cx-spinner,
+.cx-thread-row:hover .cx-pill {
+  display: none;
+}
 .cx-thread-title {
   flex: 1;
   overflow: hidden;
@@ -862,4 +886,170 @@ button:disabled {
   font: inherit;
   color: inherit;
   background: transparent;
+}
+
+/* Chat actions and Rename */
+.cx-wide-menu {
+  min-width: 260px;
+}
+.cx-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 35%);
+}
+.cx-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--v2-border-border-muted);
+  border-radius: 14px;
+  background: var(--v2-background-bg-base);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
+}
+.cx-dialog-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* Settings */
+.cx-settings {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 40px 64px;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+.cx-settings-search {
+  margin: 8px 0 4px;
+}
+.cx-settings-section {
+  margin-top: 24px;
+}
+.cx-settings-section-title {
+  margin: 24px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.cx-settings-card {
+  border: 1px solid var(--v2-border-border-muted);
+  border-radius: 12px;
+  background: var(--v2-background-bg-base);
+}
+.cx-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  padding: 10px 16px;
+}
+.cx-setting-row + .cx-setting-row {
+  border-top: 1px solid var(--v2-border-border-muted);
+}
+.cx-setting-row.cx-plain {
+  justify-content: flex-end;
+  padding: 0 0 8px;
+}
+.cx-setting-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cx-setting-title {
+  flex: 1;
+  font-weight: 500;
+}
+.cx-setting-value {
+  color: var(--v2-text-text-muted);
+  font-family: var(--cx-mono);
+  font-size: 12px;
+}
+.cx-control {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.cx-lock-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--v2-state-fg-warning);
+}
+.cx-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--v2-border-border-base);
+  transition: background 0.15s;
+}
+.cx-switch[aria-checked="true"] {
+  background: var(--v2-text-text-accent);
+}
+.cx-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.cx-switch[aria-checked="true"] .cx-switch-knob {
+  transform: translateX(14px);
+}
+.cx-switch:disabled,
+.cx-select:disabled,
+.cx-segmented button:disabled,
+.cx-control .cx-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.cx-select {
+  padding: 5px 8px;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: transparent;
+}
+.cx-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 8px;
+}
+.cx-segmented button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.cx-segmented button[aria-checked="true"] {
+  background: var(--v2-overlay-simple-overlay-hover);
+  font-weight: 600;
+}
+.cx-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--v2-state-fg-warning);
+  background: var(--v2-state-bg-warning);
 }

@@ -4,6 +4,7 @@ import { createMemo, createSignal, For, Show } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { chooseModel, PROJECT, send, setPlanMode, showToast, state, stop, type ThreadView } from "../store"
+import { prefs } from "../prefs"
 
 const LOCKED = "Disabled for this task"
 
@@ -97,12 +98,14 @@ export function Composer(props: { thread?: ThreadView }) {
   const [text, setText] = createSignal("")
   const running = () => props.thread?.loaded?.at(-1)?.status === "inProgress"
   const stopped = () => props.thread?.loaded?.at(-1)?.status === "interrupted"
+  // While a turn runs, sending follows the Follow-up behaviour setting (queue or steer).
   const submit = () => {
     const value = text().trim()
-    if (!value || running()) return
+    if (!value) return
     setText("")
     void send(value)
   }
+  const queued = () => (props.thread ? (state.queued[props.thread.id]?.length ?? 0) : 0)
   return (
     <div class="cx-composer">
       <Show when={!props.thread}>
@@ -117,7 +120,9 @@ export function Composer(props: { thread?: ThreadView }) {
         value={text()}
         onInput={(e) => setText(e.currentTarget.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+          if (e.key !== "Enter" || e.shiftKey || e.isComposing) return
+          const withCtrl = e.ctrlKey || e.metaKey
+          if (prefs.sendShortcut === "Enter" ? !withCtrl : withCtrl) {
             e.preventDefault()
             submit()
           }
@@ -156,8 +161,11 @@ export function Composer(props: { thread?: ThreadView }) {
         </Show>
         <div class="cx-grow" />
         <ModelPopover />
+        <Show when={queued()}>
+          <span class="cx-menu-subtitle">{queued()} queued</span>
+        </Show>
         <Show
-          when={running()}
+          when={running() && !text().trim()}
           fallback={
             <button class="cx-send" aria-label={stopped() && !text() ? "Resume" : "Send"} disabled={!text().trim() && !stopped()} onClick={() => (stopped() && !text().trim() ? void send("Continue") : submit())}>
               <Icon name={stopped() && !text().trim() ? "resume" : "send"} />

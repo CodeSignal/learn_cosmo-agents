@@ -2,9 +2,13 @@
 import { For, Show } from "solid-js"
 import { Icon, type IconName } from "../icons"
 import { MenuList, Popover, type MenuItem } from "./popover"
+import { prefs } from "../prefs"
 import {
+  archive,
   goHome,
+  openSettings,
   openThread,
+  pin,
   PROJECT,
   requestFor,
   setPage,
@@ -28,7 +32,7 @@ const MENUS: Record<string, MenuItem[]> = {
     { label: "New Project…", locked: LOCKED },
     { label: "Open Folder…", shortcut: "Ctrl+O", locked: LOCKED },
     { separator: true },
-    { label: "Settings…", shortcut: "Ctrl+,", onSelect: soon },
+    { label: "Settings…", shortcut: "Ctrl+,", onSelect: () => openSettings() },
     { separator: true },
     { label: "Log Out", locked: LOCKED },
   ],
@@ -53,7 +57,7 @@ const MENUS: Record<string, MenuItem[]> = {
   ],
   Help: [
     { label: "Documentation", onSelect: () => window.parent?.postMessage({ type: "agentsim:help" }, location.origin) },
-    { label: "Keyboard Shortcuts", shortcut: "Ctrl+/", onSelect: soon },
+    { label: "Keyboard Shortcuts", shortcut: "Ctrl+/", onSelect: () => openSettings("shortcuts") },
     { label: "Send Feedback", locked: LOCKED },
   ],
 }
@@ -119,8 +123,8 @@ export function Rail() {
           <MenuList
             close={close}
             items={[
-              { label: "Settings", shortcut: "Ctrl+,", onSelect: soon },
-              { label: "Keyboard shortcuts", shortcut: "Ctrl+/", onSelect: soon },
+              { label: "Settings", shortcut: "Ctrl+,", onSelect: () => openSettings() },
+              { label: "Keyboard shortcuts", shortcut: "Ctrl+/", onSelect: () => openSettings("shortcuts") },
               { separator: true },
               { label: "Log out", locked: LOCKED },
             ]}
@@ -131,17 +135,23 @@ export function Rail() {
   )
 }
 
+// A chat row; on hover it shows Pin chat and Archive chat, as in the original.
 function ThreadRow(props: { thread: ThreadView; indent?: boolean }) {
   const pending = () => requestFor(props.thread.id)
   const running = () => props.thread.status?.type === "active"
+  const pinned = () => prefs.pinned.includes(props.thread.id)
   return (
-    <button
+    <div
       class="cx-thread-row"
       data-indent={props.indent ? "" : undefined}
       data-active={state.activeId === props.thread.id ? "" : undefined}
-      onClick={() => void openThread(props.thread.id)}
     >
-      <span class="cx-thread-title">{threadTitle(props.thread)}</span>
+      <button class="cx-thread-open" onClick={() => void openThread(props.thread.id)}>
+        <Show when={pinned()}>
+          <Icon name="pin" size={12} class="cx-pin-mark" />
+        </Show>
+        <span class="cx-thread-title">{threadTitle(props.thread)}</span>
+      </button>
       <Show when={pending()}>
         <span class="cx-pill" data-kind={pending()!.method.includes("requestUserInput") ? "input" : "approval"}>
           {pending()!.method.includes("requestUserInput") ? "Needs input" : "Awaiting approval"}
@@ -150,7 +160,15 @@ function ThreadRow(props: { thread: ThreadView; indent?: boolean }) {
       <Show when={running() && !pending()}>
         <span class="cx-spinner" aria-label="Running" />
       </Show>
-    </button>
+      <span class="cx-row-actions">
+        <button class="cx-icon-btn cx-small" aria-label={pinned() ? "Unpin chat" : "Pin chat"} title={pinned() ? "Unpin chat" : "Pin chat"} onClick={() => pin(props.thread.id)}>
+          <Icon name="pin" size={14} />
+        </button>
+        <button class="cx-icon-btn cx-small" aria-label="Archive chat" title="Archive chat" onClick={() => void archive(props.thread.id)}>
+          <Icon name="archive" size={14} />
+        </button>
+      </span>
+    </div>
   )
 }
 

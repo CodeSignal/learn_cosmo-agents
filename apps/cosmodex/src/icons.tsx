@@ -30,6 +30,8 @@ const PATHS = {
   download: "M12 4v11M7 10l5 5 5-5M5 20h14",
   undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
   diff: "M12 4v8M8 8h8M8 17h8",
+  pin: "M9 4h6M10 4v6l-3 4h10l-3-4V4M12 14v6",
+  archive: "M4 5h16v4H4zM5 9v10h14V9M10 13h4",
 } as const
 
 export type IconName = keyof typeof PATHS

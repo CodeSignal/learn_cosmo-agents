@@ -11,13 +11,15 @@ import type { ThreadResumeResponse } from "./protocol/v2/ThreadResumeResponse"
 import type { ModelListResponse } from "./protocol/v2/ModelListResponse"
 import type { UserInput } from "./protocol/v2/UserInput"
 import { undoDiff } from "./diff"
+import { prefs, togglePin } from "./prefs"
+import type { ThreadForkResponse } from "./protocol/v2/ThreadForkResponse"
 
 export const WORKSPACE = import.meta.env.VITE_WORKSPACE ?? "/usercode/FILESYSTEM"
 export const PROJECT = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
 
 export type TurnView = Omit<Turn, "items"> & { items: ThreadItem[]; startedAtMs: number }
 export type ThreadView = Thread & { loaded: TurnView[] | null }
-export type Page = "home" | "thread" | "scheduled" | "plugins" | "explore"
+export type Page = "home" | "thread" | "scheduled" | "plugins" | "explore" | "settings"
 export type ChangesScope = "lastTurn" | "uncommitted" | "unstaged" | "staged"
 
 const [state, setState] = createStore({
@@ -42,6 +44,12 @@ const [state, setState] = createStore({
   planAnswered: {} as Record<string, true>,
   /** Questions the candidate answered, per turn ("Asked 1 question"). */
   questionsAsked: {} as Record<string, number>,
+  /** Settings: the open page, and the engine's configuration warnings (configWarning). */
+  settingsPage: "general",
+  configWarnings: [] as string[],
+  /** Chat being renamed (dialog), and follow-ups queued while a turn runs, by thread. */
+  renaming: null as string | null,
+  queued: {} as Record<string, string[]>,
   /** The tabs pane (right of the chat): only the Changes tab so far. */
   tabs: { open: false, scope: "lastTurn" as ChangesScope, turnId: null as string | null, wrap: false, refresh: 0 },
 })
@@ -81,7 +89,12 @@ export function turnDiff(turn: TurnView): string {
 
 export const activeThread = () => (state.activeId ? state.threads[state.activeId] : undefined)
 export const threadOrder = () =>
-  Object.values(state.threads).sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
+  Object.values(state.threads)
+    .filter((t) => !t.parentThreadId)
+    .sort((a, b) => {
+      const pin = Number(prefs.pinned.includes(b.id)) - Number(prefs.pinned.includes(a.id))
+      return pin || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0)
+    })
 export const requestFor = (threadId: string) =>
   Object.values(state.requests).find((r) => r.params?.threadId === threadId)
 
@@ -146,8 +159,22 @@ function onMessage(msg: EngineMessage) {
       setState("threads", p.threadId, "updatedAt", Math.floor(Date.now() / 1000) as never)
       return
     }
+    case "configWarning": {
+      const text = [p.summary, p.details].filter(Boolean).join(" ")
+      if (!state.configWarnings.includes(text)) setState("configWarnings", state.configWarnings.length, text)
+      return
+    }
+    case "thread/archived":
+      return setState("threads", produce((t) => delete t[p.threadId]))
     case "turn/completed":
       setState("tabs", "refresh", (n) => n + 1) // the workspace may have changed
+      // Follow-ups queued while this turn ran go out now, one turn each.
+      queueMicrotask(() => {
+        const next = state.queued[p.threadId]?.[0]
+        if (next === undefined) return
+        setState("queued", p.threadId, (q) => q.slice(1))
+        void send(next)
+      })
       return withTurn(p.threadId, p.turn.id, (turn) => {
         turn.status = p.turn.status
         turn.error = p.turn.error
@@ -252,6 +279,20 @@ export async function openThread(id: string) {
  */
 export async function send(text: string, mode: "plan" | "default" = state.planMode ? "plan" : "default") {
   const input: UserInput[] = [{ type: "text", text, text_elements: [] }]
+  const running = state.activeId ? state.threads[state.activeId]?.loaded?.at(-1) : undefined
+  if (running?.status === "inProgress") {
+    // Follow-up behaviour: steer the current run, or queue for after it.
+    if (prefs.followUp === "Steer") {
+      try {
+        await call("turn/steer", { threadId: state.activeId, input, expectedTurnId: running.id })
+      } catch (error) {
+        report(error)
+      }
+    } else {
+      setState("queued", state.activeId!, (q) => [...(q ?? []), text])
+    }
+    return
+  }
   try {
     let id = state.activeId
     if (!id) {
@@ -358,4 +399,94 @@ export async function answer(requestId: string, decision: string) {
 
 export function start() {
   listen(onMessage)
+}
+
+// Chat actions (thread "…" menu, sidebar row icons, shortcuts).
+
+export function openSettings(page = state.settingsPage) {
+  setState({ page: "settings", settingsPage: page, activeId: null })
+}
+
+export function startRename(threadId: string) {
+  setState("renaming", threadId)
+}
+
+export async function rename(threadId: string, name: string) {
+  setState("renaming", null)
+  const clean = name.trim()
+  if (!clean) return
+  try {
+    await call("thread/name/set", { threadId, name: clean })
+    setState("threads", threadId, "name", clean)
+  } catch (error) {
+    report(error)
+  }
+}
+
+export function pin(threadId: string) {
+  togglePin(threadId)
+}
+
+export async function fork(threadId: string) {
+  try {
+    const res = await call<ThreadForkResponse>("thread/fork", { threadId })
+    upsertThread(res.thread)
+    setState("threads", res.thread.id, "loaded", null)
+    await openThread(res.thread.id)
+    showToast("Forked chat")
+  } catch (error) {
+    report(error)
+  }
+}
+
+export async function archive(threadId: string) {
+  try {
+    await call("thread/archive", { threadId })
+    setState("threads", produce((t) => delete t[threadId]))
+    if (state.activeId === threadId) goHome()
+    showToast("Chat archived")
+  } catch (error) {
+    report(error)
+  }
+}
+
+export async function unarchive(threadId: string) {
+  try {
+    await call("thread/unarchive", { threadId })
+    await refreshThreads()
+  } catch (error) {
+    report(error)
+  }
+}
+
+export async function archivedThreads(): Promise<Thread[]> {
+  try {
+    return (await call<ThreadListResponse>("thread/list", { archived: true, limit: 100 })).data
+  } catch (error) {
+    report(error)
+    return []
+  }
+}
+
+/** The chat as Markdown (user messages as quotes, replies as they are). */
+export function threadMarkdown(thread: ThreadView) {
+  const parts: string[] = [`# ${threadTitle(thread)}`]
+  for (const turn of thread.loaded ?? []) {
+    for (const item of turn.items) {
+      if (item.type === "userMessage") parts.push(item.content.map((c) => ("text" in c ? `> ${c.text}` : "")).join("\n"))
+      else if (item.type === "agentMessage") parts.push(item.text)
+      else if (item.type === "plan") parts.push(item.text)
+      else if (item.type === "commandExecution") parts.push("```sh\n$ " + item.command + "\n```")
+    }
+  }
+  return parts.filter(Boolean).join("\n\n") + "\n"
+}
+
+export async function copy(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    showToast(`${what} copied`)
+  } catch {
+    showToast(`Couldn't copy the ${what.toLowerCase()}.`)
+  }
 }

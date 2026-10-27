@@ -2,9 +2,11 @@
 // of the rail's pages).
 import { Match, Show, Switch } from "solid-js"
 import { Rail, Sidebar, TitleBar } from "./components/chrome"
+import { RenameDialog } from "./components/chat-actions"
+import { SettingsNav, SettingsPage } from "./components/settings"
 import { Composer } from "./components/composer"
 import { ThreadPage } from "./components/thread"
-import { activeThread, openChanges, PROJECT, state, toggleSidebar } from "./store"
+import { activeThread, archive, goHome, openChanges, openSettings, pin, PROJECT, startRename, state, toggleSidebar } from "./store"
 
 function Mark() {
   // An orbit around a dot: Cosmodex's mark.
@@ -41,15 +43,28 @@ function EmptyPage(props: { title: string; empty: string }) {
   )
 }
 
-// Shortcuts from the original: Ctrl+Shift+G opens Changes, Ctrl+Shift+S toggles the sidebar.
+// Shortcuts from the original: Ctrl+Shift+G opens Changes, Ctrl+Shift+S toggles the sidebar,
+// Ctrl+, opens Settings, Ctrl+N starts a new chat; on an open chat Ctrl+Alt+R renames,
+// Ctrl+Alt+P pins and Ctrl+Shift+A archives.
 document.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return
-  if (e.key.toLowerCase() === "g") {
+  if (!(e.ctrlKey || e.metaKey)) return
+  const key = e.key.toLowerCase()
+  const thread = state.page === "thread" ? activeThread() : undefined
+  const run = (action: () => void) => {
     e.preventDefault()
-    openChanges(activeThread()?.loaded?.at(-1)?.id ?? null)
-  } else if (e.key.toLowerCase() === "s") {
-    e.preventDefault()
-    toggleSidebar()
+    action()
+  }
+  if (e.shiftKey && !e.altKey) {
+    if (key === "g") run(() => openChanges(activeThread()?.loaded?.at(-1)?.id ?? null))
+    else if (key === "s") run(toggleSidebar)
+    else if (key === "a" && thread) run(() => void archive(thread.id))
+  } else if (e.altKey && !e.shiftKey && thread) {
+    // Alt changes e.key on some layouts; e.code names the physical key.
+    if (e.code === "KeyR") run(() => startRename(thread.id))
+    else if (e.code === "KeyP") run(() => pin(thread.id))
+  } else if (!e.shiftKey && !e.altKey) {
+    if (key === ",") run(() => openSettings())
+    else if (key === "n") run(goHome)
   }
 })
 
@@ -59,8 +74,8 @@ export function App() {
       <TitleBar />
       <div class="cx-body">
         <Rail />
-        <Show when={state.sidebar}>
-          <Sidebar />
+        <Show when={state.page === "settings"} fallback={<Show when={state.sidebar}><Sidebar /></Show>}>
+          <SettingsNav />
         </Show>
         <main class="cx-main">
           <Show when={state.engine !== "ready"}>
@@ -74,6 +89,9 @@ export function App() {
             <Match when={state.page === "plugins"}>
               <EmptyPage title="Plugins" empty="Plugins aren't available in this task." />
             </Match>
+            <Match when={state.page === "settings"}>
+              <SettingsPage />
+            </Match>
             <Match when={state.page === "explore"}>
               <EmptyPage title="Explore" empty="Nothing to explore in this task." />
             </Match>
@@ -81,6 +99,7 @@ export function App() {
               <Home />
             </Match>
           </Switch>
+          <RenameDialog />
           <Show when={state.toast}>
             <div class="cx-toast" role="status">
               {state.toast}

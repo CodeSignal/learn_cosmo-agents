@@ -8,6 +8,7 @@ import { Composer } from "./composer"
 import { ApprovalCard } from "./approval"
 import { openChanges, requestFor, state, threadTitle, turnDiff, undoTurn, type ThreadView, type TurnView } from "../store"
 import { ChangesPane } from "./changes"
+import { ChatActionsMenu } from "./chat-actions"
 import { ImplementPrompt, PlanCard, proposedPlan, QuestionCard, withoutPlan } from "./plan"
 import { parseDiff, totals } from "../diff"
 import type { ThreadItem } from "../protocol/v2/ThreadItem"
@@ -197,9 +198,7 @@ export function ThreadPage(props: { thread: ThreadView }) {
         <Icon name="folder" size={14} />
         <span class="cx-thread-head-title">{threadTitle(props.thread)}</span>
         <div class="cx-grow" />
-        <button class="cx-icon-btn" aria-label="Chat actions">
-          <Icon name="more" />
-        </button>
+        <ChatActionsMenu thread={props.thread} />
       </header>
       <div
         class="cx-conversation"
