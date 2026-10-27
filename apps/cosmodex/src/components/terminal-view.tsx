@@ -52,6 +52,21 @@ export function TerminalView(props: { tabId: string; processId: string; active: 
   const cleanups: (() => void)[] = []
 
   const send = (method: string, params: object) => call(method, { processId: props.processId, ...params }).catch(() => {})
+  // Keystrokes go out one call at a time (calls in flight together can arrive out of order); what's
+  // typed meanwhile goes in the next call.
+  let typed = ""
+  let writing = false
+  const write = async (data: string) => {
+    typed += data
+    if (writing) return
+    writing = true
+    while (typed && !exited) {
+      const chunk = typed
+      typed = ""
+      await send("command/exec/write", { deltaBase64: toBase64(chunk) })
+    }
+    writing = false
+  }
 
   onMount(async () => {
     const { mod, ghostty } = await loadGhostty()
@@ -73,7 +88,7 @@ export function TerminalView(props: { tabId: string; processId: string; active: 
       }),
     )
     const onData = t.onData((data) => {
-      if (!exited) void send("command/exec/write", { deltaBase64: toBase64(data) })
+      if (!exited) void write(data)
     })
     const onResize = t.onResize((size) => {
       if (!exited) void send("command/exec/resize", { size: { cols: size.cols, rows: size.rows } })
