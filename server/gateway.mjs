@@ -19,14 +19,30 @@ export class RouteGateway {
         return { allow: rule.allow !== false, reason: rule.reason };
       }
     }
-    return { allow: false, reason: "not on the allowlist" };
+    return { allow: false, unknown: true, reason: "not on the allowlist" };
+  }
+
+  /** The refusal body; an engine gateway overrides it with the shape its UI already shows. */
+  blockBody(reason) {
+    return { blocked: true, reason: reason || "Blocked by the simulation" };
+  }
+
+  /**
+   * A route the engine doesn't document. The engine itself would not serve it as an API either,
+   * so answer 404. It goes to the server log, not the event log Cosmo reads: it's the UI
+   * probing for an API version, not a blocked action.
+   */
+  notFound(res, { method, pathname }) {
+    console.warn(`${this.name}: unrouted ${method} ${pathname}`);
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ name: "NotFound", data: { message: "Not found" } }));
   }
 
   /** Answer a refused request the way the UIs expect, and log it. */
   block(res, { method, pathname, reason, agent }) {
     this.events?.record("blocked", { gateway: this.name, agent, method, path: pathname, reason });
     res.writeHead(403, { "content-type": "application/json", "x-agentsim-blocked": "1" });
-    res.end(JSON.stringify({ blocked: true, reason: reason || "Blocked by the simulation" }));
+    res.end(JSON.stringify(this.blockBody(reason)));
   }
 }
 
@@ -49,4 +65,23 @@ export function proxyHttp(req, res, { target, path, headers = {} }) {
   });
   req.pipe(upstream);
   res.on("close", () => upstream.destroy());
+}
+
+/** Forward a WebSocket upgrade to `target`, then splice the two sockets together. */
+export function proxyUpgrade(req, socket, head, { target, path, headers = {} }) {
+  const url = new URL(path, target);
+  const up = http.request(url, { headers: { ...req.headers, ...headers, host: url.host } });
+  up.on("upgrade", (r, upSocket, upHead) => {
+    const lines = [`HTTP/1.1 ${r.statusCode} ${r.statusMessage}`];
+    for (let i = 0; i < r.rawHeaders.length; i += 2) lines.push(`${r.rawHeaders[i]}: ${r.rawHeaders[i + 1]}`);
+    socket.write(lines.join("\r\n") + "\r\n\r\n");
+    if (upHead?.length) socket.write(upHead);
+    if (head?.length) upSocket.write(head);
+    upSocket.pipe(socket).pipe(upSocket);
+    upSocket.on("error", () => socket.destroy());
+    socket.on("error", () => upSocket.destroy());
+  });
+  up.on("response", (r) => socket.end(`HTTP/1.1 ${r.statusCode} ${r.statusMessage}\r\n\r\n`));
+  up.on("error", () => socket.destroy());
+  up.end();
 }

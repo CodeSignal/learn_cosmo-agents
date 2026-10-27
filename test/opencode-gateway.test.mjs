@@ -1,0 +1,97 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { createOpenCodeGateway } from "../server/gateways/opencode.mjs";
+import { ROUTES, pathPattern } from "../server/gateways/opencode-routes.mjs";
+
+const listen = (server) => new Promise((r) => server.listen(0, "127.0.0.1", () => r(`http://127.0.0.1:${server.address().port}`)));
+
+async function setup({ terminal = false } = {}) {
+  const seen = [];
+  const engine = http.createServer((req, res) => {
+    seen.push({ method: req.method, url: req.url, auth: req.headers.authorization });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("{}");
+  });
+  const target = await listen(engine);
+  const events = [];
+  const handler = createOpenCodeGateway({
+    target,
+    password: "pw",
+    workspace: "/usercode/FILESYSTEM",
+    terminal,
+    events: { record: (type, d) => events.push({ type, ...d }) },
+  });
+  const front = http.createServer((req, res) => handler(req, res, req.url));
+  const base = await listen(front);
+  const close = () => {
+    engine.close();
+    front.close();
+  };
+  return { base, seen, events, close };
+}
+
+test("every route is classified once, and patterns match only their own shape", () => {
+  const keys = ROUTES.map(([m, p]) => `${m} ${p}`);
+  assert.equal(new Set(keys).size, keys.length);
+  assert.ok(pathPattern("/session/{id}/share").test("/session/abc/share"));
+  assert.ok(!pathPattern("/session/{id}/share").test("/session/a/b/share"));
+  assert.ok(pathPattern("/api/fs/read/*").test("/api/fs/read/src/a.py"));
+});
+
+test("allowed routes reach the engine with its password; the browser never needs it", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  const res = await fetch(`${s.base}/session?directory=%2Fusercode%2FFILESYSTEM`);
+  assert.equal(res.status, 200);
+  assert.equal(s.seen[0].auth, "Basic " + Buffer.from("opencode:pw").toString("base64"));
+});
+
+for (const [method, path, reason] of [
+  ["PATCH", "/config", "configuration"],
+  ["PUT", "/auth/anthropic", "provider credentials"],
+  ["POST", "/mcp", "MCP servers"],
+  ["POST", "/session/s1/share", "session sharing"],
+  ["DELETE", "/session/s1", "the session history"],
+  ["POST", "/global/upgrade", "the agent server"],
+  ["POST", "/experimental/worktree", "workspaces"],
+  ["POST", "/session/s1/shell", "the terminal"],
+  ["POST", "/pty", "the terminal"],
+]) {
+  test(`${method} ${path} is refused (${reason}) in OpenCode's error shape and logged`, async (t) => {
+    const s = await setup();
+    t.after(s.close);
+    const res = await fetch(`${s.base}${path}`, { method, body: method === "GET" ? undefined : "{}" });
+    assert.equal(res.status, 403);
+    const body = await res.json();
+    assert.equal(body.name, "Forbidden");
+    assert.match(body.data.message, new RegExp(`Blocked by the simulation: ${reason}`));
+    assert.equal(s.seen.length, 0);
+    assert.equal(s.events[0].type, "blocked");
+    assert.equal(s.events[0].reason, reason);
+  });
+}
+
+test("the terminal routes open only when the task enables a terminal", async (t) => {
+  const s = await setup({ terminal: true });
+  t.after(s.close);
+  assert.equal((await fetch(`${s.base}/pty`, { method: "POST", body: "{}" })).status, 200);
+});
+
+test("folders outside the workspace are refused, by query and by header", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  assert.equal((await fetch(`${s.base}/file?directory=%2Fhome%2Frunner`)).status, 403);
+  assert.equal((await fetch(`${s.base}/file`, { headers: { "x-opencode-directory": "/usercode/FILESYSTEM-other" } })).status, 403);
+  assert.equal((await fetch(`${s.base}/file?directory=%2Fusercode%2FFILESYSTEM%2Fsrc`)).status, 200);
+  assert.equal(s.events.filter((e) => e.type === "blocked").length, 2);
+});
+
+test("undocumented routes get a 404 and stay out of the event log", async (t) => {
+  const s = await setup();
+  t.after(s.close);
+  const res = await fetch(`${s.base}/api/project`);
+  assert.equal(res.status, 404);
+  assert.equal(s.events.length, 0);
+  assert.equal((await fetch(`${s.base}/tui/submit-prompt`, { method: "POST", body: "{}" })).status, 404);
+});

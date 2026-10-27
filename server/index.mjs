@@ -6,12 +6,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createEventLog } from "./events.mjs";
+import { createOpenCodeGateway } from "./gateways/opencode.mjs";
 import { PINS, engineOf, validateTaskConfig } from "../policy/schema.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const isProduction = process.env.IS_PRODUCTION === "true";
 const PORT = Number(process.env.PORT || (isProduction ? 3000 : 3001));
 const DIST_DIR = process.env.DIST_DIR || path.join(HERE, "..", "dist");
+const AGENTS_DIR = process.env.AGENTS_DIR || path.join(HERE, "..", "dist-agents");
 const POLICY_PATH = process.env.POLICY_PATH || "/etc/agentsim/policy.json";
 
 export const LABELS = { opencosmo: "OpenCosmo", cosmodex: "Cosmodex", "cosmo-code": "Cosmo Code" };
@@ -44,13 +46,7 @@ function readBody(req, limit = 16 * 1024) {
   });
 }
 
-function serveStatic(res, pathname) {
-  const rel = (pathname === "/" ? "/index.html" : pathname).replace(/^\/+/, "");
-  const file = path.resolve(DIST_DIR, rel);
-  if (path.relative(path.resolve(DIST_DIR), file).startsWith("..")) {
-    res.writeHead(403);
-    return res.end("Forbidden");
-  }
+function sendFile(res, file) {
   fs.readFile(file, (err, data) => {
     if (err) {
       res.writeHead(404, { "content-type": "text/plain" });
@@ -59,6 +55,32 @@ function serveStatic(res, pathname) {
     res.writeHead(200, { "content-type": MIME[path.extname(file)] || "application/octet-stream" });
     res.end(data);
   });
+}
+
+/** A file under `root`, or null when the path would leave it. */
+function within(root, rel) {
+  const file = path.resolve(root, rel.replace(/^\/+/, ""));
+  return path.relative(path.resolve(root), file).startsWith("..") ? null : file;
+}
+
+function serveStatic(res, pathname) {
+  const file = within(DIST_DIR, pathname === "/" ? "/index.html" : pathname);
+  if (!file) {
+    res.writeHead(403);
+    return res.end("Forbidden");
+  }
+  sendFile(res, file);
+}
+
+/** An agent UI under /agents/<agent>/: its files, or its index.html for client-side routes. */
+function serveAgent(res, agent, rest) {
+  const root = path.join(AGENTS_DIR, agent);
+  const file = within(root, rest || "/");
+  if (!file) {
+    res.writeHead(403);
+    return res.end("Forbidden");
+  }
+  fs.stat(file, (err, st) => sendFile(res, !err && st.isFile() ? file : path.join(root, "index.html")));
 }
 
 /**
@@ -82,7 +104,7 @@ export function createServer({ policy, events, gateways = {} }) {
     terminal: policy.terminal,
   });
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     const { pathname } = new URL(req.url, "http://localhost");
     try {
       if (pathname === "/api/health") return sendJson(res, 200, { ok: true });
@@ -117,6 +139,8 @@ export function createServer({ policy, events, gateways = {} }) {
         if (!handler) return sendJson(res, 503, { error: `${LABELS[agent]} is not available yet` });
         return handler(req, res, sub + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""));
       }
+      const ui = /^\/agents\/([a-z-]+)(\/.*)?$/.exec(pathname);
+      if (ui && policy.agents.includes(ui[1]) && gateways[ui[1]]) return serveAgent(res, ui[1], ui[2]);
       if (pathname.startsWith("/api/")) return sendJson(res, 404, { error: "not found" });
       if (!isProduction) return sendJson(res, 404, { error: "development mode: the UI is served by Vite (npm run start:dev)" });
       return serveStatic(res, pathname);
@@ -126,6 +150,30 @@ export function createServer({ policy, events, gateways = {} }) {
       else res.end();
     }
   });
+
+  server.on("upgrade", (req, socket, head) => {
+    const { pathname, search } = new URL(req.url, "http://localhost");
+    const m = /^\/engine\/([a-z-]+)(\/.*)?$/.exec(pathname);
+    const handler = m && policy.agents.includes(m[1]) ? gateways[m[1]] : null;
+    if (!handler?.upgrade) return socket.end("HTTP/1.1 404 Not Found\r\n\r\n");
+    handler.upgrade(req, socket, head, (m[2] || "/") + search);
+  });
+  return server;
+}
+
+/** The engine gateways for the task's agents, from the supervisor-provided environment. */
+export function gatewaysFor(policy, events, env = process.env) {
+  const gateways = {};
+  if (policy.agents.includes("opencosmo")) {
+    gateways.opencosmo = createOpenCodeGateway({
+      target: env.OPENCODE_URL || "http://127.0.0.1:4096",
+      password: env.OPENCODE_SERVER_PASSWORD,
+      workspace: env.WORKSPACE || "/usercode/FILESYSTEM",
+      terminal: policy.terminal === "sandboxed",
+      events,
+    });
+  }
+  return gateways;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -141,5 +189,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
   const events = createEventLog(process.env.EVENTS_DIR);
-  createServer({ policy, events }).listen(PORT, () => console.log(`agentsim server on :${PORT}`));
+  createServer({ policy, events, gateways: gatewaysFor(policy, events) }).listen(PORT, () => console.log(`agentsim server on :${PORT}`));
 }

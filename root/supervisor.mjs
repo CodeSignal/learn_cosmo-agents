@@ -5,6 +5,7 @@
 //   supervisor.mjs --daemon   detach and run in the background (what agentsim-start calls)
 //   supervisor.mjs            run in the foreground
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,12 @@ const LOG_DIR = "/var/log/agentsim";
 const STATE_DIR = "/var/lib/agentsim";
 const EVENTS_DIR = `${STATE_DIR}/events`;
 const POLICY = "/etc/agentsim/policy.json";
+const ENGINE_ENV = "/etc/agentsim/engine-env.json";
+const SESSION_USER = "runner";
+const WORKSPACE = "/usercode/FILESYSTEM";
+const OPENCODE_PORT = 4096;
+// Proxy route and keys, handed to the engines only (never to the server).
+const PROXY_ENV = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"];
 const MARKER = `${STATE_DIR}/applied`;
 const CHECK_MS = 2000;
 const MAX_BACKOFF_MS = 10_000;
@@ -75,33 +82,60 @@ function alive(pid) {
   }
 }
 
-/** The processes to keep running. Engine services join this list as their adapters land. */
-export function services() {
-  return [
-    {
-      name: "server",
-      user: "agentsim",
-      cmd: process.execPath,
-      args: [path.join(APP, "server", "index.mjs")],
-      env: {
-        PORT: "3000",
-        IS_PRODUCTION: "true",
-        POLICY_PATH: POLICY,
-        EVENTS_DIR,
-        DIST_DIR: path.join(APP, "dist"),
+function which(bin) {
+  for (const dir of ["/usr/local/bin", "/usr/bin", "/bin"]) {
+    if (fs.existsSync(path.join(dir, bin))) return path.join(dir, bin);
+  }
+  throw new Error(`${bin} is not installed`);
+}
+
+/** The processes to keep running for this task's policy. */
+export function services({ policy, engineEnv, env = process.env, password = crypto.randomBytes(24).toString("base64url") }) {
+  const proxy = Object.fromEntries(PROXY_ENV.filter((k) => env[k]).map((k) => [k, env[k]]));
+  const list = [];
+  const serverEnv = {
+    PORT: "3000",
+    IS_PRODUCTION: "true",
+    POLICY_PATH: POLICY,
+    EVENTS_DIR,
+    DIST_DIR: path.join(APP, "dist"),
+    AGENTS_DIR: path.join(APP, "dist-agents"),
+    WORKSPACE,
+  };
+  if (policy.agents.includes("opencosmo")) {
+    Object.assign(serverEnv, { OPENCODE_URL: `http://127.0.0.1:${OPENCODE_PORT}`, OPENCODE_SERVER_PASSWORD: password });
+    list.push({
+      name: "opencode",
+      user: SESSION_USER,
+      cmd: which("opencode"),
+      args: ["serve", "--hostname", "127.0.0.1", "--port", String(OPENCODE_PORT)],
+      cwd: WORKSPACE,
+      env: { ...engineEnv.opencode, ...proxy, OPENCODE_SERVER_PASSWORD: password },
+      port: OPENCODE_PORT,
+      // OpenCode treats a folder without git as rooted at /, which the gateway refuses.
+      prepare: () => {
+        if (fs.existsSync(path.join(WORKSPACE, ".git"))) return;
+        const acct = account(SESSION_USER);
+        spawnSync("git", ["init", "-q"], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
       },
-      port: 3000,
-    },
-  ];
+    });
+  }
+  list.unshift({ name: "server", user: "agentsim", cmd: process.execPath, args: [path.join(APP, "server", "index.mjs")], env: serverEnv, port: 3000 });
+  return list;
 }
 
 function start(svc) {
   const acct = account(svc.user);
+  try {
+    svc.prepare?.();
+  } catch (e) {
+    log("prepare-failed", { service: svc.name, error: e.message });
+  }
   const out = fs.openSync(`${LOG_DIR}/${svc.name}.log`, "a");
   const child = spawn(svc.cmd, svc.args, {
     uid: acct.uid,
     gid: acct.gid,
-    cwd: acct.home,
+    cwd: svc.cwd || acct.home,
     env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: acct.home, USER: svc.user, LANG: "C.UTF-8", ...svc.env },
     stdio: ["ignore", out, out],
     detached: true, // own process group, so a restart takes its children down too
@@ -149,7 +183,9 @@ function run() {
   fs.mkdirSync(EVENTS_DIR, { recursive: true, mode: 0o755 });
   fs.chownSync(EVENTS_DIR, sim.uid, sim.gid);
   fs.writeFileSync(PID_FILE, `${process.pid}\n`);
-  const list = services();
+  const policy = JSON.parse(fs.readFileSync(POLICY, "utf8"));
+  const engineEnv = JSON.parse(fs.readFileSync(ENGINE_ENV, "utf8"));
+  const list = services({ policy, engineEnv });
   list.forEach(start);
   setInterval(() => checkPorts(list), CHECK_MS);
   const stop = () => {

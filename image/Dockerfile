@@ -11,6 +11,13 @@ COPY vite.config.js ./
 COPY client ./client
 RUN npm run build
 
+# OpenCosmo: the vendored OpenCode web app, built with the Bun version upstream pins.
+FROM oven/bun:1.3.14 AS opencosmo
+WORKDIR /work
+COPY vendor/opencode ./
+RUN bun install --filter "@opencode-ai/app" --frozen-lockfile
+RUN cd packages/app && OPENCOSMO_BASE=/agents/opencosmo/ VITE_ENGINE_PATH=/engine/opencosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build
+
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,6 +43,7 @@ COPY policy /opt/agentsim/policy
 COPY root /opt/agentsim/root
 COPY scripts /opt/agentsim/scripts
 COPY --from=build /src/dist /opt/agentsim/dist
+COPY --from=opencosmo /work/packages/app/dist /opt/agentsim/dist-agents/opencosmo
 RUN mkdir -p /opt/agentsim/bin \
     && mv /opt/agentsim/root/bin/* /opt/agentsim/bin/ && rmdir /opt/agentsim/root/bin \
     && install -m 0440 -o root -g root /opt/agentsim/root/sudoers /etc/sudoers.d/agentsim \
