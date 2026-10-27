@@ -6,11 +6,10 @@ import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { Icon } from "../icons"
 import { Composer } from "./composer"
 import { ApprovalCard } from "./approval"
-import { openChanges, requestFor, state, threadTitle, turnDiff, undoTurn, type ThreadView, type TurnView } from "../store"
-import { ChangesPane } from "./changes"
+import { openChanges, openFile, requestFor, state, threadTitle, toggleTabs, turnDiff, undoTurn, WORKSPACE, type ThreadView, type TurnView } from "../store"
 import { ChatActionsMenu } from "./chat-actions"
 import { ImplementPrompt, PlanCard, proposedPlan, QuestionCard, withoutPlan } from "./plan"
-import { parseDiff, totals } from "../diff"
+import { changeDiff, parseDiff, totals } from "../diff"
 import type { ThreadItem } from "../protocol/v2/ThreadItem"
 import type { UserInput } from "../protocol/v2/UserInput"
 
@@ -26,16 +25,6 @@ function turnLine(turn: TurnView) {
   return `Worked for ${seconds(took)}`
 }
 
-function diffStats(diff: string) {
-  let add = 0
-  let del = 0
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) add++
-    else if (line.startsWith("-") && !line.startsWith("---")) del++
-  }
-  return { add, del }
-}
-
 const base = (p: string) => p.split("/").pop() ?? p
 
 const encoder = new TextEncoder()
@@ -47,15 +36,16 @@ function UserInputView(props: { input: UserInput }) {
     const input = props.input
     if (input.type !== "text") return []
     const raw = encoder.encode(input.text)
-    const out: { text: string; chip: boolean }[] = []
+    const out: { text: string; path?: string }[] = []
     let at = 0
     for (const el of [...(input.text_elements ?? [])].sort((a, b) => a.byteRange.start - b.byteRange.start)) {
       if (el.byteRange.start < at || el.byteRange.end > raw.length) continue
-      if (el.byteRange.start > at) out.push({ text: decoder.decode(raw.slice(at, el.byteRange.start)), chip: false })
-      out.push({ text: el.placeholder ?? decoder.decode(raw.slice(el.byteRange.start, el.byteRange.end)), chip: true })
+      if (el.byteRange.start > at) out.push({ text: decoder.decode(raw.slice(at, el.byteRange.start)) })
+      const path = decoder.decode(raw.slice(el.byteRange.start, el.byteRange.end))
+      out.push({ text: el.placeholder ?? path, path })
       at = el.byteRange.end
     }
-    if (at < raw.length) out.push({ text: decoder.decode(raw.slice(at)), chip: false })
+    if (at < raw.length) out.push({ text: decoder.decode(raw.slice(at)) })
     return out
   }
   return (
@@ -64,7 +54,17 @@ function UserInputView(props: { input: UserInput }) {
         {(skill) => <span class="cx-mention cx-skill">{state.skills.find((k) => k.name === skill().name)?.interface?.displayName ?? skill().name}</span>}
       </Match>
       <Match when={props.input.type === "text"}>
-        <For each={parts()}>{(part) => (part.chip ? <span class="cx-mention">{part.text}</span> : part.text)}</For>
+        <For each={parts()}>
+          {(part) =>
+            part.path ? (
+              <button class="cx-mention cx-link" title={part.path} onClick={() => openFile(part.path!)}>
+                {part.text}
+              </button>
+            ) : (
+              part.text
+            )
+          }
+        </For>
       </Match>
     </Switch>
   )
@@ -103,13 +103,15 @@ function FileChangeRows(props: { item: Extract<ThreadItem, { type: "fileChange" 
   return (
     <For each={props.item.changes}>
       {(change) => {
-        const stats = diffStats(change.diff ?? "")
+        const stats = totals(parseDiff(changeDiff(change, WORKSPACE)))
         const verb = change.kind.type === "add" ? "Created" : change.kind.type === "delete" ? "Deleted" : "Edited"
         return (
           <div class="cx-tool-row cx-static">
             <Icon name="pencil" size={14} />
             <span>{verb}</span>
-            <span class="cx-file-link">{base(change.path)}</span>
+            <button class="cx-file-link cx-link" title={change.path} onClick={() => openFile(change.path.replace(`${WORKSPACE}/`, ""))}>
+              {base(change.path)}
+            </button>
             <span class="cx-add">+{stats.add}</span>
             <span class="cx-del">-{stats.del}</span>
           </div>
@@ -225,13 +227,13 @@ export function ThreadPage(props: { thread: ThreadView }) {
   })
   onCleanup(() => follow.disconnect())
   return (
-    <div class="cx-split-main">
     <div class="cx-chat">
       <header class="cx-thread-head">
         <Icon name="folder" size={14} />
         <span class="cx-thread-head-title">{threadTitle(props.thread)}</span>
         <div class="cx-grow" />
         <ChatActionsMenu thread={props.thread} />
+        <TabsToggle />
       </header>
       <div
         class="cx-conversation"
@@ -252,9 +254,16 @@ export function ThreadPage(props: { thread: ThreadView }) {
         </Switch>
       </div>
     </div>
-    <Show when={state.tabs.open}>
-      <ChangesPane />
+  )
+}
+
+/** The header's "New tab" / "Show tabs" button (hidden while the pane is open, as in the original). */
+export function TabsToggle() {
+  return (
+    <Show when={!state.tabs.open}>
+      <button class="cx-icon-btn" aria-label={state.tabs.list.length ? "Show tabs" : "New tab"} title={`${state.tabs.list.length ? "Show tabs" : "New tab"} Ctrl+Shift+B`} onClick={toggleTabs}>
+        <Icon name="panelRight" />
+      </button>
     </Show>
-    </div>
   )
 }

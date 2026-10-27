@@ -1,4 +1,4 @@
-// The tabs pane with its Changes tab (diff review). Scope menu: Last Turn, Uncommitted, Unstaged,
+// The tabs pane's Changes tab (diff review). Scope menu: Last Turn, Uncommitted, Unstaged,
 // Staged, with +/- totals; options (word wrap); per file a header with path, +/- and file actions,
 // then the unified diff with old/new line numbers. As in the original there's no per-hunk accept or
 // reject: the turn's Undo is the revert.
@@ -6,7 +6,7 @@ import { createResource, createSignal, For, Show } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { parseDiff, totals, type DiffFile } from "../diff"
-import { activeThread, closeTabs, setChangesScope, showToast, state, toggleWrap, turnDiff, type ChangesScope } from "../store"
+import { activeThread, openFile, setChangesScope, showToast, state, toggleWrap, turnDiff, type ChangesScope } from "../store"
 
 const SCOPES: { id: ChangesScope; label: string }[] = [
   { id: "lastTurn", label: "Last Turn" },
@@ -27,7 +27,9 @@ function FileDiff(props: { file: DiffFile }) {
     <section class="cx-diff-file">
       <header class="cx-diff-file-head">
         <Icon name="fileEdit" size={14} />
-        <span class="cx-diff-path">{props.file.path}</span>
+        <button class="cx-diff-path cx-link" onClick={() => openFile(props.file.path)}>
+          {props.file.path}
+        </button>
         <span class="cx-add">+{props.file.add}</span>
         <span class="cx-del">-{props.file.del}</span>
         <div class="cx-grow" />
@@ -69,7 +71,7 @@ function FileDiff(props: { file: DiffFile }) {
   )
 }
 
-export function ChangesPane() {
+export function ChangesView() {
   const [workspace] = createResource(
     () => (state.tabs.scope === "lastTurn" ? null : { scope: state.tabs.scope, refresh: state.tabs.refresh }),
     (key) => workspaceDiff(key.scope),
@@ -83,16 +85,7 @@ export function ChangesPane() {
   const sum = () => totals(files())
   const label = () => SCOPES.find((s) => s.id === state.tabs.scope)!.label
   return (
-    <aside class="cx-tabs" aria-label="Tabs">
-      <div class="cx-tab-strip" role="tablist">
-        <button class="cx-tab" role="tab" aria-selected="true">
-          Changes
-        </button>
-        <div class="cx-grow" />
-        <button class="cx-icon-btn" aria-label="Hide tabs" onClick={closeTabs}>
-          <Icon name="sidebar" />
-        </button>
-      </div>
+    <div class="cx-tab-body">
       <div class="cx-changes-toolbar">
         <Popover
           trigger={(_, toggle) => (
@@ -131,6 +124,6 @@ export function ChangesPane() {
           </For>
         </Show>
       </div>
-    </aside>
+    </div>
   )
 }

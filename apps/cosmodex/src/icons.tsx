@@ -41,6 +41,11 @@ const PATHS = {
   gauge: "M4 16a8 8 0 1 1 16 0M12 16l4-5",
   sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
   bolt: "M13 3L5 13h6l-1 8 8-10h-6z",
+  globe: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3",
+  close: "M6 6l12 12M18 6L6 18",
+  expand: "M14 4h6v6M10 20H4v-6M20 4l-6 6M4 20l6-6",
+  collapse: "M20 10h-6V4M4 14h6v6M14 10l6-6M10 14l-6 6",
+  panelRight: "M4 5h16v14H4zM15 5v14",
 } as const
 
 export type IconName = keyof typeof PATHS

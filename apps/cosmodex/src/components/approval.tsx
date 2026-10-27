@@ -4,7 +4,7 @@ import { For, onMount, Show } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { answer, state, WORKSPACE } from "../store"
-import { parseDiff } from "../diff"
+import { changeDiff, parseDiff } from "../diff"
 import type { EngineMessage } from "../engine"
 
 const MODERN = { deny: "decline", once: "accept", session: "acceptForSession" }
@@ -22,7 +22,7 @@ export function ApprovalCard(props: { request: EngineMessage }) {
       const item = turn.items.find((i) => i.id === p().itemId)
       if (item?.type === "fileChange") {
         return item.changes.map((c) => {
-          const parsed = parseDiff(c.diff.startsWith("---") || c.diff.startsWith("diff --git") ? c.diff : `--- a/${c.path}\n+++ b/${c.path}\n${c.diff}`)[0]
+          const parsed = parseDiff(changeDiff(c, WORKSPACE))[0]
           return { path: c.path, add: parsed?.add ?? 0, del: parsed?.del ?? 0 }
         })
       }

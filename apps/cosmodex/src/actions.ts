@@ -12,11 +12,15 @@ import {
   openSettings,
   openThread,
   pin,
+  newTab,
+  openTerminal,
   showToast,
   startRename,
   state,
+  stepTab,
   threadOrder,
   toggleSidebar,
+  toggleTabs,
 } from "./store"
 
 const NA = "Not available in this task"
@@ -116,9 +120,25 @@ export const ACTIONS: Action[] = [
   { id: "changes", label: "Open changes", icon: "diff", shortcut: "Ctrl+Shift+G", run: () => openChanges(activeThread()?.loaded?.at(-1)?.id ?? null) },
   { id: "settings", label: "Settings", icon: "gear", shortcut: "Ctrl+,", run: () => openSettings() },
   { id: "files", label: "Search files", icon: "file", shortcut: "Ctrl+P", run: () => openCommandMenu("files") },
+  { id: "new-tab", label: "New tab", icon: "plus", shortcut: "Ctrl+T", run: newTab },
+  { id: "tabs", label: "Toggle tabs", icon: "panelRight", shortcut: "Ctrl+Shift+B", run: toggleTabs },
+  { id: "previous-tab", label: "Previous tab", shortcut: "Ctrl+Shift+[", run: () => stepTab(-1) },
+  { id: "next-tab", label: "Next tab", shortcut: "Ctrl+Shift+]", run: () => stepTab(1) },
 ]
 
-const CODES: Record<string, string> = { "[": "BracketLeft", "]": "BracketRight", ",": "Comma", "/": "Slash" }
+// The terminal is in the list only when the task has one (it's locked otherwise).
+ACTIONS.push({
+  id: "terminal",
+  label: "Open terminal",
+  icon: "terminal",
+  shortcut: "Ctrl+`",
+  get locked() {
+    return state.terminal ? undefined : NA
+  },
+  run: openTerminal,
+})
+
+const CODES: Record<string, string> = { "[": "BracketLeft", "]": "BracketRight", ",": "Comma", "/": "Slash", "`": "Backquote" }
 
 /** Whether a key event is the shortcut "Ctrl+Alt+1" etc. Keys match by physical key (e.code),
  * since Alt changes e.key on some layouts. Ctrl also matches Cmd. */
@@ -128,13 +148,16 @@ export function matches(shortcut: string, e: KeyboardEvent) {
   const mods = new Set(parts)
   if ((e.ctrlKey || e.metaKey) !== mods.has("Ctrl") || e.shiftKey !== mods.has("Shift") || e.altKey !== mods.has("Alt")) return false
   const code = /^[A-Z]$/.test(key) ? `Key${key}` : /^[0-9]$/.test(key) ? `Digit${key}` : CODES[key]
-  return e.code === code
+  // Some synthetic events carry no code; their key is the next best thing.
+  return e.code ? e.code === code : e.key.toLowerCase() === key.toLowerCase()
 }
 
 export function onShortcut(e: KeyboardEvent) {
   if (!(e.ctrlKey || e.metaKey || e.altKey)) return
   // An open dialog (command menu, rename) handles its own keys.
   if (state.commandMenu || state.renaming) return
+  // In the terminal, Ctrl+letter belongs to the shell (Ctrl+P is history there); Ctrl+` still toggles.
+  if (e.target instanceof Element && e.target.closest(".cx-terminal") && !e.shiftKey && !e.altKey && e.code !== "Backquote") return
   const action = ACTIONS.find((a) => a.shortcut && a.run && !a.locked && (a.when?.() ?? true) && matches(a.shortcut, e))
   if (!action) return
   e.preventDefault()

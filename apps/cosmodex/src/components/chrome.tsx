@@ -8,6 +8,7 @@ import {
   goHome,
   openCommandMenu,
   openSettings,
+  openTerminal,
   openThread,
   pin,
   PROJECT,
@@ -50,7 +51,14 @@ const MENUS: Record<string, MenuItem[]> = {
     { label: "Toggle Sidebar", shortcut: "Ctrl+Shift+S", onSelect: toggleSidebar },
     { label: "Toggle Bottom Panel", shortcut: "Ctrl+J", disabled: true },
     { label: "Toggle Pinned Summary", disabled: true },
-    { label: "Open Terminal", shortcut: "Ctrl+`", locked: LOCKED },
+    {
+      label: "Open Terminal",
+      shortcut: "Ctrl+`",
+      get locked() {
+        return state.terminal ? undefined : LOCKED
+      },
+      onSelect: openTerminal,
+    },
     { separator: true },
     { label: "Find", shortcut: "Ctrl+F", disabled: true },
     { label: "Back", shortcut: "Ctrl+[", disabled: true },

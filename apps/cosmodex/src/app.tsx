@@ -9,6 +9,8 @@ import { ThreadPage } from "./components/thread"
 import { activeThread, PROJECT, state } from "./store"
 import { onShortcut } from "./actions"
 import { CommandMenu } from "./components/command-menu"
+import { TabsPane } from "./components/tabs-pane"
+import { TabsToggle } from "./components/thread"
 
 function Mark() {
   // An orbit around a dot: Cosmodex's mark.
@@ -20,9 +22,15 @@ function Mark() {
   )
 }
 
+/** Home and chats show the tabs pane; other pages don't. */
+const chatPage = () => state.page === "home" || state.page === "thread"
+
 function Home() {
   return (
     <div class="cx-home">
+      <div class="cx-home-actions">
+        <TabsToggle />
+      </div>
       <div class="cx-home-center">
         <Mark />
         <h1 class="cx-home-title">
@@ -61,6 +69,8 @@ export function App() {
           <Show when={state.engine !== "ready"}>
             <div class="cx-banner">{state.engine === "reconnecting" ? "Reconnecting to the agent…" : "Starting the agent…"}</div>
           </Show>
+          <div class="cx-split-main">
+          <div class="cx-page-col" hidden={state.tabs.open && state.tabs.full && chatPage()}>
           <Switch>
             <Match when={state.page === "thread" && activeThread()}>{(thread) => <ThreadPage thread={thread()} />}</Match>
             <Match when={state.page === "scheduled"}>
@@ -79,6 +89,12 @@ export function App() {
               <Home />
             </Match>
           </Switch>
+          </div>
+          {/* Kept mounted while it has tabs (a terminal keeps its shell); shown next to Home and chats. */}
+          <Show when={state.tabs.list.length}>
+            <TabsPane />
+          </Show>
+          </div>
           <RenameDialog />
           <CommandMenu />
           <Show when={state.toast}>

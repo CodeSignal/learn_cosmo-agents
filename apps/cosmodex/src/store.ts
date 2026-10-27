@@ -11,7 +11,7 @@ import type { ThreadResumeResponse } from "./protocol/v2/ThreadResumeResponse"
 import type { ThreadReadResponse } from "./protocol/v2/ThreadReadResponse"
 import type { ModelListResponse } from "./protocol/v2/ModelListResponse"
 import type { UserInput } from "./protocol/v2/UserInput"
-import { undoDiff } from "./diff"
+import { changeDiff, undoDiff } from "./diff"
 import { prefs, togglePin } from "./prefs"
 import type { ThreadForkResponse } from "./protocol/v2/ThreadForkResponse"
 import type { TextElement } from "./protocol/v2/TextElement"
@@ -27,6 +27,8 @@ export type ThreadView = Thread & { loaded: TurnView[] | null }
 export type Page = "home" | "thread" | "scheduled" | "plugins" | "explore" | "settings"
 export type ChangesScope = "lastTurn" | "uncommitted" | "unstaged" | "staged"
 export type CommandTab = "all" | "actions" | "chats" | "files" | "text"
+/** A tab of the tabs pane. Terminals keep their engine process id. */
+export type PaneTab = { id: string; kind: "new" | "changes" | "file" | "terminal"; path?: string; processId?: string; title?: string }
 /** What the composer sends: text with file chips (text elements), and chosen skills. */
 export type Draft = { text: string; elements: TextElement[]; skills: { name: string; path: string }[] }
 
@@ -65,8 +67,19 @@ const [state, setState] = createStore({
   skills: [] as SkillMetadata[],
   /** Files picked this session (command menu › Files "Opened recently"), newest first. */
   recentFiles: [] as string[],
-  /** The tabs pane (right of the chat): only the Changes tab so far. */
-  tabs: { open: false, scope: "lastTurn" as ChangesScope, turnId: null as string | null, wrap: false, refresh: 0 },
+  /** The tabs pane (right of the chat): its tabs, the selected one, full view, and the Changes tab's settings. */
+  tabs: {
+    open: false,
+    full: false,
+    list: [] as PaneTab[],
+    active: null as string | null,
+    scope: "lastTurn" as ChangesScope,
+    turnId: null as string | null,
+    wrap: false,
+    refresh: 0,
+  },
+  /** Whether the task gives the candidate a terminal (the server's /api/session). */
+  terminal: false,
 })
 export { state }
 
@@ -88,17 +101,10 @@ export function threadTitle(thread: ThreadView) {
 /** The turn's diff: live from turn/diff/updated, or rebuilt from its file changes (history). */
 export function turnDiff(turn: TurnView): string {
   if (state.turnDiffs[turn.id]) return state.turnDiffs[turn.id]!
-  // History (and engines that don't send turn/diff/updated): rebuild a git-style diff from the
-  // turn's file changes, whose paths are absolute and whose diffs are bare hunks.
-  const rel = (p: string) => (p.startsWith(`${WORKSPACE}/`) ? p.slice(WORKSPACE.length + 1) : p)
+  // History (and engines that don't send turn/diff/updated): rebuild it from the turn's file changes.
   return turn.items
     .flatMap((i) => (i.type === "fileChange" ? i.changes : []))
-    .map((c) => {
-      if (c.diff.startsWith("---") || c.diff.startsWith("diff --git")) return c.diff
-      const from = c.kind.type === "add" ? "/dev/null" : `a/${rel(c.path)}`
-      const to = c.kind.type === "delete" ? "/dev/null" : `b/${rel(c.path)}`
-      return `--- ${from}\n+++ ${to}\n${c.diff.endsWith("\n") ? c.diff : c.diff + "\n"}`
-    })
+    .map((c) => changeDiff(c, WORKSPACE))
     .join("")
 }
 
@@ -188,6 +194,8 @@ function onMessage(msg: EngineMessage) {
       if (!state.configWarnings.includes(text)) setState("configWarnings", state.configWarnings.length, text)
       return
     }
+    case "command/exec/outputDelta":
+      return terminalOutput(p.processId, p.deltaBase64)
     case "thread/tokenUsage/updated":
       return setState("tokenUsage", p.threadId, p.tokenUsage)
     case "thread/archived":
@@ -374,12 +382,97 @@ export async function answerPlan(turnId: string, choice: { implement: true } | {
   }
 }
 
-export function openChanges(turnId: string | null, scope: ChangesScope = "lastTurn") {
-  setState("tabs", { open: true, scope, turnId })
+let tabSeq = 0
+const nextTabId = (kind: string) => `${kind}-${++tabSeq}`
+
+function addTab(tab: PaneTab) {
+  setState("tabs", (t) => ({ ...t, open: true, list: [...t.list, tab], active: tab.id }))
 }
 
+/** Select the first tab matching `find`, or add `make()`. */
+function focusOrAdd(find: (t: PaneTab) => boolean, make: () => PaneTab) {
+  const found = state.tabs.list.find(find)
+  if (found) setState("tabs", { open: true, active: found.id })
+  else addTab(make())
+}
+
+export function openChanges(turnId: string | null, scope: ChangesScope = "lastTurn") {
+  setState("tabs", { scope, turnId })
+  focusOrAdd((t) => t.kind === "changes", () => ({ id: nextTabId("changes"), kind: "changes" }))
+}
+
+/** Open a workspace file (relative path) in a file tab. */
+export function openFile(path: string) {
+  rememberFile(path)
+  if (state.page !== "thread" && state.page !== "home") setState("page", state.activeId ? "thread" : "home")
+  focusOrAdd((t) => t.kind === "file" && t.path === path, () => ({ id: nextTabId("file"), kind: "file", path }))
+}
+
+export function newTab() {
+  addTab({ id: nextTabId("new"), kind: "new" })
+}
+
+export function openTerminal() {
+  if (!state.terminal) return showToast("The terminal isn't available in this task.")
+  const id = nextTabId("terminal")
+  addTab({ id, kind: "terminal", processId: `cosmodex-${id}-${Date.now().toString(36)}` })
+}
+
+export function selectTab(id: string) {
+  setState("tabs", "active", id)
+}
+
+export function stepTab(delta: number) {
+  const list = state.tabs.list
+  if (!list.length) return
+  const at = list.findIndex((t) => t.id === state.tabs.active)
+  setState("tabs", { open: true, active: list[(at + delta + list.length) % list.length]!.id })
+}
+
+export function setTabTitle(id: string, title: string) {
+  setState("tabs", "list", (t) => t.id === id, "title", title)
+}
+
+export function closeTab(id: string) {
+  const list = state.tabs.list
+  const at = list.findIndex((t) => t.id === id)
+  if (at < 0) return
+  const rest = list.filter((t) => t.id !== id)
+  const active = state.tabs.active === id ? (rest[Math.min(at, rest.length - 1)]?.id ?? null) : state.tabs.active
+  setState("tabs", { list: rest, active, open: rest.length > 0 && state.tabs.open, full: rest.length > 0 && state.tabs.full })
+}
+
+/** "Hide tabs" keeps them; "Show tabs" brings them back (or opens a New tab). */
 export function closeTabs() {
-  setState("tabs", "open", false)
+  setState("tabs", { open: false, full: false })
+}
+
+export function toggleTabs() {
+  if (state.tabs.open) closeTabs()
+  else if (state.tabs.list.length) setState("tabs", "open", true)
+  else newTab()
+}
+
+export function toggleFullView() {
+  setState("tabs", "full", (f) => !f)
+}
+
+// Terminal output arrives as engine notifications; each terminal tab listens for its process.
+const terminalSinks = new Map<string, (bytes: Uint8Array) => void>()
+const terminalBacklog = new Map<string, Uint8Array[]>()
+
+export function onTerminalOutput(processId: string, sink: (bytes: Uint8Array) => void) {
+  terminalSinks.set(processId, sink)
+  for (const chunk of terminalBacklog.get(processId) ?? []) sink(chunk)
+  terminalBacklog.delete(processId)
+  return () => terminalSinks.delete(processId)
+}
+
+function terminalOutput(processId: string, base64: string) {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+  const sink = terminalSinks.get(processId)
+  if (sink) sink(bytes)
+  else terminalBacklog.set(processId, [...(terminalBacklog.get(processId) ?? []), bytes])
 }
 
 export function setChangesScope(scope: ChangesScope) {
@@ -426,6 +519,10 @@ export async function answer(requestId: string, decision: string) {
 
 export function start() {
   listen(onMessage)
+  void fetch("/api/session")
+    .then((res) => (res.ok ? res.json() : undefined))
+    .then((session) => setState("terminal", !!session?.terminal && session.terminal !== "off"))
+    .catch(() => setState("terminal", false))
 }
 
 // Chat actions (thread "…" menu, sidebar row icons, shortcuts).

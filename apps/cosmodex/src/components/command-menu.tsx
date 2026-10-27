@@ -5,16 +5,14 @@
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { Icon, type IconName } from "../icons"
 import { ACTIONS, type Action } from "../actions"
-import { editor } from "../editor"
 import { call } from "../engine"
 import {
   closeCommandMenu,
-  goHome,
   loadTurns,
   openCommandMenu,
+  openFile,
   openThread,
   PROJECT,
-  rememberFile,
   state,
   threadOrder,
   threadTitle,
@@ -46,18 +44,14 @@ function chatEntries(q: string): Entry[] {
     .map((t) => ({ key: `chat-${t.id}`, icon: "chat", label: threadTitle(t), hint: t.cwd === WORKSPACE ? PROJECT : undefined, run: () => void openThread(t.id) }))
 }
 
-/** Picking a file adds it to the composer as a file chip (the files tab of the tabs pane isn't built yet). */
+/** Picking a file opens it in a file tab of the tabs pane. */
 function fileEntry(path: string): Entry {
   return {
     key: `file-${path}`,
     icon: "file",
     label: path.split("/").pop() ?? path,
     hint: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : undefined,
-    run: () => {
-      rememberFile(path)
-      if (state.page !== "thread" && state.page !== "home") goHome()
-      queueMicrotask(() => editor.insertMention(path))
-    },
+    run: () => openFile(path),
   }
 }
 

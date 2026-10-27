@@ -711,8 +711,17 @@ button:disabled {
   flex: 1;
   min-height: 0;
 }
-.cx-split-main > .cx-chat {
+.cx-page-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-width: 300px;
+  min-height: 0;
+}
+.cx-page-col[hidden],
+.cx-tabs[hidden],
+.cx-tab-panel[hidden] {
+  display: none;
 }
 .cx-tabs {
   display: flex;
@@ -725,17 +734,177 @@ button:disabled {
 .cx-tab-strip {
   display: flex;
   align-items: center;
-  height: 40px;
+  gap: 4px;
+  height: 44px;
   padding: 0 8px;
+  overflow-x: auto;
   border-bottom: 1px solid var(--v2-border-border-muted);
 }
 .cx-tab {
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  flex: 0 1 220px;
+  min-width: 90px;
+  height: 30px;
+  padding: 0 2px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--v2-text-text-muted);
+}
+.cx-tab:hover {
+  background: var(--v2-overlay-simple-overlay-hover);
 }
 .cx-tab[aria-selected="true"] {
+  border-color: var(--v2-border-border-base);
+  color: var(--v2-text-text-base);
+  background: var(--v2-background-bg-base);
+}
+.cx-tab-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  text-align: left;
+}
+.cx-tab-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cx-tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.cx-tab-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.cx-home-actions {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+}
+.cx-link {
+  cursor: pointer;
+}
+.cx-link:hover {
+  text-decoration: underline;
+}
+
+/* New tab */
+.cx-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+}
+.cx-url {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: center;
+  color: inherit;
+  background: var(--v2-background-bg-layer-02);
+}
+.cx-tools {
+  padding: 24px 20px;
+}
+.cx-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+.cx-tool-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-align: left;
+  background: var(--v2-background-bg-layer-01);
+}
+.cx-tool-card:hover:not(:disabled) {
   background: var(--v2-overlay-simple-overlay-hover);
+}
+.cx-tool-card[data-locked] {
+  cursor: not-allowed;
+  color: var(--v2-state-fg-warning);
+}
+
+/* File tab */
+.cx-file-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--cx-mono);
+  font-size: 12px;
+}
+.cx-file-body {
+  flex: 1;
+  overflow: auto;
+}
+.cx-file-grid {
+  display: flex;
+  align-items: flex-start;
+  min-width: max-content;
+  padding: 8px 0;
+}
+.cx-file-gutter,
+.cx-file-code pre,
+.cx-file-code code {
+  margin: 0;
+  font-family: var(--cx-mono);
+  font-size: 12px;
+  line-height: 20px;
+}
+.cx-file-gutter {
+  position: sticky;
+  left: 0;
+  padding: 0 12px 0 16px;
+  text-align: right;
+  user-select: none;
+  color: var(--v2-text-text-faint);
+  background: var(--v2-background-bg-base);
+}
+.cx-file-code {
+  flex: 1;
+}
+.cx-file-body .cx-file-code [data-component="markdown-code"] {
+  margin: 0;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.cx-file-code pre {
+  padding: 0 16px 0 0 !important;
+  overflow: visible !important;
+  white-space: pre !important;
+  background: transparent !important;
+}
+.cx-file-code [data-component="markdown-code"] > button {
+  display: none;
+}
+
+/* Terminal tab */
+.cx-terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0 0 8px;
+  overflow: hidden;
+  background: var(--v2-background-bg-base);
 }
 .cx-changes-toolbar {
   display: flex;
@@ -1243,4 +1412,21 @@ button:disabled {
 }
 .cx-bubble .cx-skill {
   margin-right: 4px;
+}
+.cx-home {
+  position: relative;
+}
+.cx-chip {
+  white-space: nowrap;
+}
+.cx-composer-row {
+  min-width: 0;
+}
+.cx-composer-row .cx-chip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cx-composer-row .cx-send {
+  flex: none;
 }

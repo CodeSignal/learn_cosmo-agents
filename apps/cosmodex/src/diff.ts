@@ -8,6 +8,24 @@ export type DiffFile = { path: string; kind: "add" | "delete" | "update"; add: n
 
 const strip = (p: string) => p.replace(/^[ab]\//, "")
 
+type Change = { path: string; kind: { type: string }; diff: string }
+
+/** A fileChange as a git-style file diff. Updates carry bare hunks; an added (or deleted) file
+ * carries its whole content, which becomes one hunk of + (or -) lines. Paths become relative. */
+export function changeDiff(change: Change, workspace: string): string {
+  if (change.diff.startsWith("---") || change.diff.startsWith("diff --git")) return change.diff
+  const rel = change.path.startsWith(`${workspace}/`) ? change.path.slice(workspace.length + 1) : change.path
+  const added = change.kind.type === "add"
+  const deleted = change.kind.type === "delete"
+  let body = change.diff
+  if ((added || deleted) && !body.startsWith("@@")) {
+    const lines = body ? body.replace(/\n$/, "").split("\n") : []
+    const range = `1,${lines.length}`
+    body = `@@ -${added ? "0,0" : range} +${added ? range : "0,0"} @@\n${lines.map((l) => (added ? "+" : "-") + l).join("\n")}`
+  }
+  return `--- ${added ? "/dev/null" : `a/${rel}`}\n+++ ${deleted ? "/dev/null" : `b/${rel}`}\n${body.endsWith("\n") ? body : body + "\n"}`
+}
+
 /** Split a (git or plain) unified diff into files with numbered lines. */
 export function parseDiff(text: string): DiffFile[] {
   const files: DiffFile[] = []
