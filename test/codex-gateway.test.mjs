@@ -64,6 +64,18 @@ test("file mentions stay in the workspace; skills must be ones the engine lists"
   assert.match(turn([{ type: "skill", name: "imagegen", path: skill }]), /skills/);
 });
 
+test("the terminal runs in the workspace, sandboxed as the task allows, with a terminal's environment only", () => {
+  const exec = (params) => checkParams("command/exec", { command: ["bash", "-l"], processId: "t1", tty: true, ...params }, ctx);
+  assert.equal(exec({}).params.cwd, "/usercode/FILESYSTEM");
+  assert.equal(exec({ env: { TERM: "xterm-256color" } }).reason, undefined);
+  assert.match(exec({ env: { LD_PRELOAD: "/tmp/x.so" } }).reason, /environment/);
+  assert.match(exec({ cwd: "/home/runner" }).reason, /outside/);
+  assert.equal(exec({ sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: false } }).reason, undefined);
+  assert.match(exec({ sandboxPolicy: { type: "dangerFullAccess" } }).reason, /sandbox/);
+  assert.match(exec({ sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: true } }).reason, /network/);
+  assert.match(exec({ permissionProfile: "full" }).reason, /option/);
+});
+
 test("files and search are clamped to the workspace", () => {
   assert.equal(reason("fs/readFile", { path: "/usercode/FILESYSTEM/src/a.py" }), undefined);
   assert.equal(reason("fs/readFile", { path: "src/a.py" }), undefined);

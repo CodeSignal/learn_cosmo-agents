@@ -181,5 +181,11 @@ if (inputs.body.result) {
     JSON.stringify([files.body.result?.files?.length, filesOut.status, outside.status, forged.status, used.status, skill?.name ?? "no skills"]));
 }
 
+// The terminal: this task leaves it off, so the terminal's shell can't be started.
+const term = await rpc("command/exec", { command: ["/opt/agentsim/bin/terminal-shell"], processId: "t1", tty: true, cwd: WS });
+const shell = await rpc("thread/shellCommand", { threadId: "x", command: "id" });
+report("X17", "without a terminal in the task, the terminal and the direct shell are refused",
+  term.status === 403 && /terminal/.test(term.body.error?.message ?? "") && shell.status === 403, JSON.stringify([term.status, term.body.error?.message, shell.status]));
+
 ev.close();
 process.exit(failed ? 1 : 0);

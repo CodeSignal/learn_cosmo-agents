@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+# The terminal tab's shell. The engine runs it on a PTY inside the task's sandbox, but the sandbox
+# starts a new session without a controlling terminal: bash would have no job control (Ctrl+C,
+# Ctrl+Z) and would never hear about resizes. So bash gets a PTY of its own here; input and output
+# are relayed, and the outer terminal's size is passed on whenever it changes.
+import fcntl
+import os
+import pty
+import select
+import sys
+import termios
+import tty
+
+
+def window_size(fd):
+    return fcntl.ioctl(fd, termios.TIOCGWINSZ, b"\0" * 8)
+
+
+def write_all(fd, data):
+    while data:
+        data = data[os.write(fd, data):]
+
+
+pid, inner = pty.fork()
+if pid == 0:
+    os.execvp("bash", ["bash", "-l"])
+
+outer_in, outer_out = sys.stdin.fileno(), sys.stdout.fileno()
+try:
+    tty.setraw(outer_in)  # keys pass through untouched; the inner PTY does the line editing
+except termios.error:
+    pass
+
+size = None
+while True:
+    try:
+        now = window_size(outer_in)
+        if now != size:
+            fcntl.ioctl(inner, termios.TIOCSWINSZ, now)  # the kernel signals bash (SIGWINCH)
+            size = now
+    except OSError:
+        pass
+    try:
+        ready, _, _ = select.select([outer_in, inner], [], [], 0.25)
+    except InterruptedError:
+        continue
+    if inner in ready:
+        try:
+            data = os.read(inner, 65536)
+        except OSError:  # bash and everything on its terminal exited
+            break
+        if not data:
+            break
+        write_all(outer_out, data)
+    if outer_in in ready:
+        data = os.read(outer_in, 65536)
+        if not data:
+            break
+        write_all(inner, data)
+
+_, status = os.waitpid(pid, 0)
+sys.exit(os.waitstatus_to_exitcode(status))

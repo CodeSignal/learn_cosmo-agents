@@ -23,6 +23,8 @@ const SANDBOX_TYPES = { readOnly: "read-only", workspaceWrite: "workspace-write"
 // Parameters a candidate's UI never needs and that would change how the engine is set up.
 const SETUP_KEYS = ["modelProvider", "config", "baseInstructions", "developerInstructions", "serviceTier", "serviceTierForTurn", "serviceName"];
 const THREAD_SETUP = new Set(["thread/start", "thread/resume", "thread/fork"]);
+// The terminal (command/exec) may set only what a terminal needs; the rest of its environment is the engine's.
+const TERMINAL_ENV = new Set(["TERM", "COLORTERM", "COLUMNS", "LINES", "LANG", "LC_ALL"]);
 
 /** Whether `p` is the workspace or inside it (relative paths resolve against it). */
 export function withinWorkspace(workspace, p) {
@@ -68,7 +70,11 @@ export function checkParams(method, params = {}, ctx) {
         return { reason: `the model (${String(cm.settings.model).slice(0, 40)} isn't available in this task)` };
       }
     }
-    if (THREAD_SETUP.has(method) && !has("cwd")) p.cwd = ctx.workspace;
+    if ((THREAD_SETUP.has(method) || method === "command/exec") && !has("cwd")) p.cwd = ctx.workspace;
+  }
+  if (method === "command/exec" && has("env")) {
+    const key = typeof p.env === "object" ? Object.keys(p.env).find((k) => !TERMINAL_ENV.has(k)) : "env";
+    if (key) return { reason: "the terminal's environment" };
   }
   if (method === "turn/start" || method === "turn/steer") {
     for (const item of Array.isArray(p.input) ? p.input : []) {
