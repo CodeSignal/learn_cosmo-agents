@@ -10,6 +10,7 @@ import type { ThreadListResponse } from "./protocol/v2/ThreadListResponse"
 import type { ThreadResumeResponse } from "./protocol/v2/ThreadResumeResponse"
 import type { ModelListResponse } from "./protocol/v2/ModelListResponse"
 import type { UserInput } from "./protocol/v2/UserInput"
+import { undoDiff } from "./diff"
 
 export const WORKSPACE = import.meta.env.VITE_WORKSPACE ?? "/usercode/FILESYSTEM"
 export const PROJECT = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
@@ -17,6 +18,7 @@ export const PROJECT = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
 export type TurnView = Omit<Turn, "items"> & { items: ThreadItem[]; startedAtMs: number }
 export type ThreadView = Thread & { loaded: TurnView[] | null }
 export type Page = "home" | "thread" | "scheduled" | "plugins" | "explore"
+export type ChangesScope = "lastTurn" | "uncommitted" | "unstaged" | "staged"
 
 const [state, setState] = createStore({
   engine: "connecting" as "connecting" | "ready" | "reconnecting",
@@ -30,6 +32,18 @@ const [state, setState] = createStore({
   model: null as string | null,
   effort: null as string | null,
   toast: null as string | null,
+  /** The composer's plan-mode toggle, and the mode each thread's last turn ran in. */
+  planMode: false,
+  threadMode: {} as Record<string, "plan" | "default">,
+  /** Aggregated diff per turn (turn/diff/updated), and turns whose changes were undone. */
+  turnDiffs: {} as Record<string, string>,
+  undone: {} as Record<string, true>,
+  /** Plans the candidate already answered ("Implement this plan?"), by turn. */
+  planAnswered: {} as Record<string, true>,
+  /** Questions the candidate answered, per turn ("Asked 1 question"). */
+  questionsAsked: {} as Record<string, number>,
+  /** The tabs pane (right of the chat): only the Changes tab so far. */
+  tabs: { open: false, scope: "lastTurn" as ChangesScope, turnId: null as string | null, wrap: false, refresh: 0 },
 })
 export { state }
 
@@ -46,6 +60,23 @@ export function threadTitle(thread: ThreadView) {
     }
   }
   return "New chat"
+}
+
+/** The turn's diff: live from turn/diff/updated, or rebuilt from its file changes (history). */
+export function turnDiff(turn: TurnView): string {
+  if (state.turnDiffs[turn.id]) return state.turnDiffs[turn.id]!
+  // History (and engines that don't send turn/diff/updated): rebuild a git-style diff from the
+  // turn's file changes, whose paths are absolute and whose diffs are bare hunks.
+  const rel = (p: string) => (p.startsWith(`${WORKSPACE}/`) ? p.slice(WORKSPACE.length + 1) : p)
+  return turn.items
+    .flatMap((i) => (i.type === "fileChange" ? i.changes : []))
+    .map((c) => {
+      if (c.diff.startsWith("---") || c.diff.startsWith("diff --git")) return c.diff
+      const from = c.kind.type === "add" ? "/dev/null" : `a/${rel(c.path)}`
+      const to = c.kind.type === "delete" ? "/dev/null" : `b/${rel(c.path)}`
+      return `--- ${from}\n+++ ${to}\n${c.diff.endsWith("\n") ? c.diff : c.diff + "\n"}`
+    })
+    .join("")
 }
 
 export const activeThread = () => (state.activeId ? state.threads[state.activeId] : undefined)
@@ -116,6 +147,7 @@ function onMessage(msg: EngineMessage) {
       return
     }
     case "turn/completed":
+      setState("tabs", "refresh", (n) => n + 1) // the workspace may have changed
       return withTurn(p.threadId, p.turn.id, (turn) => {
         turn.status = p.turn.status
         turn.error = p.turn.error
@@ -133,6 +165,13 @@ function onMessage(msg: EngineMessage) {
         const item = turn.items.find((i) => i.id === p.itemId)
         if (item?.type === "agentMessage") item.text += p.delta
       })
+    case "item/plan/delta":
+      return withTurn(p.threadId, p.turnId, (turn) => {
+        const item = turn.items.find((i) => i.id === p.itemId)
+        if (item?.type === "plan") item.text += p.delta
+      })
+    case "turn/diff/updated":
+      return setState("turnDiffs", p.turnId, p.diff)
     case "item/commandExecution/outputDelta":
       return withTurn(p.threadId, p.turnId, (turn) => {
         const item = turn.items.find((i) => i.id === p.itemId)
@@ -207,8 +246,11 @@ export async function openThread(id: string) {
   }
 }
 
-/** Send a prompt: in the open thread, or in a new one from the home screen. */
-export async function send(text: string) {
+/**
+ * Send a prompt: in the open thread, or in a new one from the home screen. `mode` overrides the
+ * composer's plan toggle (e.g. "Implement this plan?" switches back to the default mode).
+ */
+export async function send(text: string, mode: "plan" | "default" = state.planMode ? "plan" : "default") {
   const input: UserInput[] = [{ type: "text", text, text_elements: [] }]
   try {
     let id = state.activeId
@@ -219,7 +261,79 @@ export async function send(text: string) {
       id = started.thread.id
       setState({ activeId: id, page: "thread" })
     }
-    await call("turn/start", { threadId: id, input, ...(state.model ? { model: state.model } : {}), ...(state.effort ? { effort: state.effort } : {}) })
+    // The mode is sent when it is plan, and when leaving plan (it sticks to the thread otherwise).
+    const needsMode = mode === "plan" || state.threadMode[id] === "plan"
+    const collaborationMode = needsMode
+      ? { mode, settings: { model: state.model, reasoning_effort: state.effort, developer_instructions: null } }
+      : undefined
+    await call("turn/start", {
+      threadId: id,
+      input,
+      ...(state.model ? { model: state.model } : {}),
+      ...(state.effort ? { effort: state.effort } : {}),
+      ...(collaborationMode ? { collaborationMode } : {}),
+    })
+    setState("threadMode", id, mode)
+  } catch (error) {
+    report(error)
+  }
+}
+
+export function setPlanMode(on: boolean) {
+  setState("planMode", on)
+}
+
+/** Answer the engine's questions (plan mode): question id -> chosen labels or typed text. */
+export async function answerQuestions(requestId: string, answers: Record<string, string[]>) {
+  const asked = state.requests[requestId]?.params
+  try {
+    await respond(requestId, { answers: Object.fromEntries(Object.entries(answers).map(([id, a]) => [id, { answers: a }])) })
+    setState("requests", produce((r) => delete r[requestId]))
+    if (asked?.turnId) setState("questionsAsked", asked.turnId, (n) => (n ?? 0) + (asked.questions?.length ?? 1))
+  } catch (error) {
+    report(error)
+  }
+}
+
+/** "Implement this plan?": yes switches to the default mode; feedback keeps planning. */
+export async function answerPlan(turnId: string, choice: { implement: true } | { feedback: string } | { skip: true }) {
+  setState("planAnswered", turnId, true)
+  if ("implement" in choice) {
+    setState("planMode", false)
+    await send("Implement the plan.", "default")
+  } else if ("feedback" in choice) {
+    await send(choice.feedback, "plan")
+  }
+}
+
+export function openChanges(turnId: string | null, scope: ChangesScope = "lastTurn") {
+  setState("tabs", { open: true, scope, turnId })
+}
+
+export function closeTabs() {
+  setState("tabs", "open", false)
+}
+
+export function setChangesScope(scope: ChangesScope) {
+  setState("tabs", "scope", scope)
+}
+
+export function toggleWrap() {
+  setState("tabs", "wrap", (w) => !w)
+}
+
+export async function undoTurn(turnId: string) {
+  const turn = Object.values(state.threads)
+    .flatMap((t) => t.loaded ?? [])
+    .find((t) => t.id === turnId)
+  const diff = turn ? turnDiff(turn) : ""
+  if (!diff) return showToast("Nothing to undo for this turn.")
+  try {
+    const result = await undoDiff(WORKSPACE, diff)
+    if (!result.ok) return showToast(`Can't undo: ${result.path} changed since this turn.`)
+    setState("undone", turnId, true)
+    setState("tabs", "refresh", (n) => n + 1)
+    showToast("Changes undone")
   } catch (error) {
     report(error)
   }

@@ -3,7 +3,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
-import { chooseModel, PROJECT, send, showToast, state, stop, type ThreadView } from "../store"
+import { chooseModel, PROJECT, send, setPlanMode, showToast, state, stop, type ThreadView } from "../store"
 
 const LOCKED = "Disabled for this task"
 
@@ -113,7 +113,7 @@ export function Composer(props: { thread?: ThreadView }) {
       <textarea
         class="cx-input"
         rows={2}
-        placeholder={props.thread ? "Work with Cosmodex" : "Do anything"}
+        placeholder={state.planMode ? "Describe your task to generate a plan..." : props.thread ? "Work with Cosmodex" : "Do anything"}
         value={text()}
         onInput={(e) => setText(e.currentTarget.value)}
         onKeyDown={(e) => {
@@ -138,12 +138,22 @@ export function Composer(props: { thread?: ThreadView }) {
               items={[
                 { heading: "Add" },
                 { label: "Files and folders", onSelect: () => showToast("This part of Cosmodex isn't available yet.") },
-                { label: "Plan mode", subtitle: "Turn plan mode on", onSelect: () => showToast("This part of Cosmodex isn't available yet.") },
+                {
+                  label: "Plan mode",
+                  subtitle: state.planMode ? "Turn plan mode off" : "Turn plan mode on",
+                  checked: state.planMode,
+                  onSelect: () => setPlanMode(!state.planMode),
+                },
               ]}
             />
           )}
         </Popover>
         <PermissionsMenu />
+        <Show when={state.planMode}>
+          <button class="cx-chip cx-chip-on" aria-label="Plan mode on; turn off" onClick={() => setPlanMode(false)}>
+            <Icon name="bulb" size={14} /> Plan
+          </button>
+        </Show>
         <div class="cx-grow" />
         <ModelPopover />
         <Show

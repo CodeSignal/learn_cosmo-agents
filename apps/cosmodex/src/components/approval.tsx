@@ -1,9 +1,10 @@
 // Approval prompts replace the composer: "Terminal" for commands, "Edit files" for patches.
 // Deny (Esc) · Allow once (Enter, focused) · Approval options ▸ (allow similar / all edits).
-import { onMount, Show } from "solid-js"
+import { For, onMount, Show } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
-import { answer, WORKSPACE } from "../store"
+import { answer, state, WORKSPACE } from "../store"
+import { parseDiff } from "../diff"
 import type { EngineMessage } from "../engine"
 
 const MODERN = { deny: "decline", once: "accept", session: "acceptForSession" }
@@ -14,6 +15,20 @@ export function ApprovalCard(props: { request: EngineMessage }) {
   const id = () => String(props.request.id)
   const isEdit = () => /fileChange|applyPatch/.test(props.request.method)
   const words = () => (/^item\//.test(props.request.method) ? MODERN : LEGACY)
+  // The edit request names an item; its changes give the files and their +/-.
+  const files = () => {
+    const turns = state.threads[p().threadId]?.loaded ?? []
+    for (const turn of turns) {
+      const item = turn.items.find((i) => i.id === p().itemId)
+      if (item?.type === "fileChange") {
+        return item.changes.map((c) => {
+          const parsed = parseDiff(c.diff.startsWith("---") || c.diff.startsWith("diff --git") ? c.diff : `--- a/${c.path}\n+++ b/${c.path}\n${c.diff}`)[0]
+          return { path: c.path, add: parsed?.add ?? 0, del: parsed?.del ?? 0 }
+        })
+      }
+    }
+    return []
+  }
   const command = () => {
     const c = p().command
     return Array.isArray(c) ? c.join(" ") : (c ?? "")
@@ -37,7 +52,13 @@ export function ApprovalCard(props: { request: EngineMessage }) {
       </Show>
       <Show when={isEdit()} fallback={<pre class="cx-approval-command">{command()}</pre>}>
         <p class="cx-approval-reason">Allow Cosmodex to edit the following file?</p>
-        <div class="cx-approval-file">{p().grantRoot ?? WORKSPACE}</div>
+        <For each={files()} fallback={<div class="cx-approval-file">{p().grantRoot ?? WORKSPACE}</div>}>
+          {(file) => (
+            <div class="cx-approval-file">
+              {WORKSPACE}/<b>{file.path.replace(`${WORKSPACE}/`, "")}</b> <span class="cx-add">+{file.add}</span> <span class="cx-del">-{file.del}</span>
+            </div>
+          )}
+        </For>
       </Show>
       <div class="cx-approval-actions">
         <button class="cx-btn" onClick={() => void answer(id(), words().deny)}>

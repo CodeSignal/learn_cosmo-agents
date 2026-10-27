@@ -173,6 +173,7 @@
       "dependencies": {
         "@opencode-ai/session-ui": "workspace:*",
         "@opencode-ai/ui": "workspace:*",
+        "diff": "catalog:",
         "solid-js": "catalog:",
       },
       "devDependencies": {

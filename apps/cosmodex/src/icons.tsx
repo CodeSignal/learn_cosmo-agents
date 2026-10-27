@@ -26,6 +26,10 @@ const PATHS = {
   check: "M5 12l5 5L20 7",
   lock: "M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3",
   bulb: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.8V16h5v-.3c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 3",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
+  diff: "M12 4v8M8 8h8M8 17h8",
 } as const
 
 export type IconName = keyof typeof PATHS

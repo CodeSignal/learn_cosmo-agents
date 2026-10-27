@@ -4,7 +4,7 @@ import { Match, Show, Switch } from "solid-js"
 import { Rail, Sidebar, TitleBar } from "./components/chrome"
 import { Composer } from "./components/composer"
 import { ThreadPage } from "./components/thread"
-import { activeThread, PROJECT, state } from "./store"
+import { activeThread, openChanges, PROJECT, state, toggleSidebar } from "./store"
 
 function Mark() {
   // An orbit around a dot: Cosmodex's mark.
@@ -40,6 +40,18 @@ function EmptyPage(props: { title: string; empty: string }) {
     </div>
   )
 }
+
+// Shortcuts from the original: Ctrl+Shift+G opens Changes, Ctrl+Shift+S toggles the sidebar.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return
+  if (e.key.toLowerCase() === "g") {
+    e.preventDefault()
+    openChanges(activeThread()?.loaded?.at(-1)?.id ?? null)
+  } else if (e.key.toLowerCase() === "s") {
+    e.preventDefault()
+    toggleSidebar()
+  }
+})
 
 export function App() {
   return (

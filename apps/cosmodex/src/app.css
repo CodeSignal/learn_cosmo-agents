@@ -668,3 +668,198 @@ button:disabled {
   background: var(--v2-background-bg-inverse);
   box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
 }
+
+/* Chat + tabs pane */
+.cx-split-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.cx-split-main > .cx-chat {
+  min-width: 300px;
+}
+.cx-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1.4;
+  min-width: 0;
+  border-left: 1px solid var(--v2-border-border-muted);
+  background: var(--v2-background-bg-base);
+}
+.cx-tab-strip {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+}
+.cx-tab {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.cx-tab[aria-selected="true"] {
+  background: var(--v2-overlay-simple-overlay-hover);
+}
+.cx-changes-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+}
+.cx-changes-body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+.cx-diff-file {
+  margin-bottom: 10px;
+  border: 1px solid var(--v2-border-border-muted);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cx-diff-file-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+  background: var(--v2-background-bg-layer-01);
+}
+.cx-diff-path {
+  font-family: var(--cx-mono);
+  font-size: 12px;
+}
+.cx-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--cx-mono);
+  font-size: 12px;
+}
+.cx-diff-table tr[data-kind="add"] {
+  background: var(--v2-state-bg-success);
+}
+.cx-diff-table tr[data-kind="del"] {
+  background: var(--v2-state-bg-danger);
+}
+.cx-diff-table tr[data-kind="hunk"] {
+  color: var(--v2-text-text-muted);
+  background: var(--v2-background-bg-layer-01);
+}
+.cx-diff-no {
+  width: 1%;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--v2-text-text-faint);
+  user-select: none;
+  white-space: nowrap;
+}
+.cx-diff-code {
+  padding: 0 8px;
+  white-space: pre;
+}
+.cx-diff-table[data-wrap] .cx-diff-code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Turn summary */
+.cx-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--v2-border-border-muted);
+  border-radius: 10px;
+  background: var(--v2-background-bg-base);
+}
+.cx-summary[data-undone] {
+  opacity: 0.7;
+}
+.cx-small-btn {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
+/* Plan mode */
+.cx-chip-on {
+  color: var(--v2-text-text-accent);
+  background: var(--v2-state-bg-info);
+}
+.cx-plan {
+  margin: 8px 0;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--v2-background-bg-base);
+}
+.cx-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+}
+.cx-plan-body {
+  padding: 4px 14px 10px;
+}
+.cx-question-head {
+  display: flex;
+  align-items: center;
+}
+.cx-question-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.cx-options {
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+}
+.cx-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+}
+.cx-option:hover {
+  background: var(--v2-overlay-simple-overlay-hover);
+}
+.cx-option-no {
+  color: var(--v2-text-text-muted);
+}
+.cx-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.cx-option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cx-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--v2-state-fg-info);
+  background: var(--v2-state-bg-info);
+}
+.cx-other {
+  margin: 4px 0 8px;
+}
+.cx-other-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
