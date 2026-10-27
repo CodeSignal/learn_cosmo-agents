@@ -126,5 +126,38 @@ if (planThread.body.result) {
   report("X13", "a plan-mode question reaches the browser, the answer goes back, and the turn completes", !!q && answered && !!done, JSON.stringify(q?.params ?? null).slice(0, 200));
 }
 
+// Chat actions: rename, fork, archive and restore go through; a fork can't widen the sandbox.
+const chat = await rpc("thread/start", {});
+if (chat.body.result) {
+  const tid = chat.body.result.thread.id;
+  await rpc("turn/start", { threadId: tid, input: [{ type: "text", text: "hello", text_elements: [] }] });
+  await ev.waitFor((m) => m.method === "turn/completed" && m.params?.threadId === tid);
+  const named = await rpc("thread/name/set", { threadId: tid, name: "Renamed chat" });
+  const read = await rpc("thread/read", { threadId: tid });
+  const forked = await rpc("thread/fork", { threadId: tid });
+  const wide = await rpc("thread/fork", { threadId: tid, sandbox: "danger-full-access" });
+  const archived = await rpc("thread/archive", { threadId: tid });
+  const listed = await rpc("thread/list", { archived: true, limit: 50 });
+  const restored = await rpc("thread/unarchive", { threadId: tid });
+  report("X14", "rename, fork, archive and restore work; a fork with a wider sandbox is refused",
+    named.status === 200 && read.body.result?.thread?.name === "Renamed chat" &&
+      forked.status === 200 && forked.body.result?.thread?.id !== tid && forked.body.result?.approvalPolicy === "untrusted" &&
+      wide.status === 403 && archived.status === 200 && restored.status === 200 &&
+      (listed.body.result?.data ?? []).some((t) => t.id === tid),
+    JSON.stringify([named.status, read.body.result?.thread?.name, forked.status, forked.body.result?.approvalPolicy, wide.status, archived.status, listed.status, restored.status]));
+}
+
+// Follow-up "Steer": a message sent into a running turn reaches the model in that same turn.
+const steer = await rpc("thread/start", {});
+if (steer.body.result) {
+  const tid = steer.body.result.thread.id;
+  const t = await rpc("turn/start", { threadId: tid, input: [{ type: "text", text: "WAIT: 4", text_elements: [] }] });
+  const turnId = t.body.result?.turn?.id;
+  const steered = await rpc("turn/steer", { threadId: tid, expectedTurnId: turnId, input: [{ type: "text", text: "steered in", text_elements: [] }] });
+  const done = await ev.waitFor((m) => m.method === "turn/completed" && m.params?.threadId === tid);
+  const reply = ev.seen.find((m) => m.method === "item/completed" && m.params?.threadId === tid && m.params?.turnId === turnId && /steered in/.test(m.params?.item?.text ?? ""));
+  report("X15", "a steered follow-up joins the running turn", steered.status === 200 && !!done && !!reply, JSON.stringify([steered.status, steered.body]).slice(0, 300));
+}
+
 ev.close();
 process.exit(failed ? 1 : 0);

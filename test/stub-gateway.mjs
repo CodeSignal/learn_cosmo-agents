@@ -153,6 +153,7 @@ const STUB_PLAN = [
 /**
  * Codex scripts. RUN: <cmd> runs a command; ADD: <path> <text> creates a file; REPLACE: <path>
  * "<old line>" => "<new line>" edits one line (quotes keep the indentation exact); ASK asks a question (plan mode); PLANTEXT answers with a plan.
+ * WAIT: <seconds> (any agent) holds the reply back, so a turn stays in progress for follow-ups and Stop.
  */
 function codexScript(input, user) {
   const exec = (code) => ({ kind: "custom", name: "exec", input: code });
@@ -185,8 +186,10 @@ function codexScript(input, user) {
   return null;
 }
 
-function responses(req, res, body) {
+function responses(req, res, body, waited = false) {
   const input = Array.isArray(body.input) ? body.input : [{ role: "user", content: body.input }];
+  const wait = waited ? null : /\bWAIT:\s*(\d+)/.exec(lastUserText(input) ?? "");
+  if (wait) return void setTimeout(() => responses(req, res, body, true), Number(wait[1]) * 1000);
   let p = plan(body.model, lastUserText(input), body.tools);
   const scripted = p.kind === "text" ? codexScript(input, lastUserText(input)) : null;
   if (scripted) p = scripted;
