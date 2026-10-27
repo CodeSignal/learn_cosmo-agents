@@ -21,6 +21,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { useSessionArchive } from "@/pages/session/session-archive"
 import { createSessionOwnership } from "./session-ownership"
 import { useLocal } from "@/context/local"
+import { terminalEnabled } from "@/opencosmo-task"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -544,6 +545,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   ]
 
   const viewCmds = () => [
+    // OpenCosmo: terminal commands exist only when the task enables a terminal.
+    ...(terminalEnabled()
+      ? [
     viewCommand({
       id: "terminal.toggle",
       title: language.t("command.terminal.toggle"),
@@ -559,6 +563,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         view().terminal.open()
       },
     }),
+        ]
+      : []),
     viewCommand({
       id: "review.toggle",
       title: language.t("command.review.toggle"),
@@ -649,7 +655,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     ...fileCmds(),
     ...contextCmds(),
     ...viewCmds(),
-    ...terminalCmds(),
+    ...(terminalEnabled() ? terminalCmds() : []),
     ...messageCmds(),
     ...mcpCmds(),
     ...permissionsCmds(),
