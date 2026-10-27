@@ -1,10 +1,7 @@
-// Cosmodex's gateway to `codex app-server` (JSON-RPC over a loopback WebSocket, run by the
-// supervisor as the session user). The browser never talks to the engine: it calls methods with
-// POST /rpc, receives notifications and engine requests (approvals, questions) over SSE /events,
-// and answers those with POST /respond. Only classified methods pass, and their parameters are
-// checked against what the task allows.
+// Cosmodex's gateway to `codex app-server` (JSON-RPC over a loopback WebSocket; see jsonrpc.mjs).
+// Only classified methods pass, and their parameters are checked against what the task allows.
 import path from "node:path";
-import { RouteGateway, readBody } from "../gateway.mjs";
+import { createJsonRpcGateway } from "./jsonrpc.mjs";
 import fs from "node:fs";
 import { METHODS, DECISIONS, USER_INPUT, CODEX_VERSION } from "./codex-methods.mjs";
 
@@ -99,149 +96,10 @@ export function checkParams(method, params = {}, ctx) {
 
 const CONFIG_REASON = (key) => (key.startsWith("serviceTier") || key === "serviceName" ? "the service tier" : "configuration");
 
-/** A JSON-RPC connection to app-server that reconnects (and re-initializes) when it drops. */
-class EngineLink {
-  constructor({ url, onMessage, onState }) {
-    this.url = url;
-    this.onMessage = onMessage;
-    this.onState = onState;
-    this.nextId = 1;
-    this.pending = new Map();
-    this.queue = [];
-    this.ready = false;
-    this.connect();
-  }
-
-  connect() {
-    let ws;
-    try {
-      ws = new WebSocket(this.url);
-    } catch {
-      return this.retry();
-    }
-    this.ws = ws;
-    // Node's WebSocket can sit in CONNECTING forever when nothing listens yet (the engine starts
-    // alongside the server), so an attempt that hasn't opened in time is dropped and retried.
-    const opening = setTimeout(() => {
-      if (ws.readyState === 1) return;
-      this.ws = null;
-      try {
-        ws.close();
-      } catch {
-        /* never opened */
-      }
-      this.retry();
-    }, 3000);
-    ws.addEventListener("open", () => {
-      clearTimeout(opening);
-      const id = `init-${this.nextId++}`;
-      this.pending.set(id, {
-        resolve: () => {
-          this.send({ jsonrpc: "2.0", method: "initialized" });
-          this.ready = true;
-          this.onState("ready");
-          for (const msg of this.queue.splice(0)) this.send(msg);
-        },
-        reject: () => ws.close(),
-      });
-      // The experimental API carries plan mode and questions; experimental methods the gateway
-      // hasn't classified stay refused.
-      this.send({
-        jsonrpc: "2.0",
-        id,
-        method: "initialize",
-        params: { clientInfo: { name: "cosmodex", title: "Cosmodex", version: CODEX_VERSION }, capabilities: { experimentalApi: true } },
-      });
-    });
-    ws.addEventListener("message", (event) => {
-      let msg;
-      try {
-        msg = JSON.parse(String(event.data));
-      } catch {
-        return;
-      }
-      if (msg.id !== undefined && !msg.method && this.pending.has(msg.id)) {
-        const { resolve, reject } = this.pending.get(msg.id);
-        this.pending.delete(msg.id);
-        return msg.error ? reject(msg.error) : resolve(msg.result);
-      }
-      this.onMessage(msg);
-    });
-    ws.addEventListener("close", () => {
-      clearTimeout(opening);
-      if (this.ws !== ws) return;
-      this.ready = false;
-      for (const [id, { reject }] of this.pending) {
-        this.pending.delete(id);
-        reject({ code: -32000, message: "The agent restarted; try again." });
-      }
-      this.onState("reconnecting");
-      this.retry();
-    });
-    ws.addEventListener("error", () => {});
-  }
-
-  retry() {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.connect(), 1000);
-  }
-
-  send(msg) {
-    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(msg));
-  }
-
-  request(method, params) {
-    const id = this.nextId++;
-    const msg = { jsonrpc: "2.0", id, method, params };
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      if (this.ready) this.send(msg);
-      else this.queue.push(msg);
-    });
-  }
-
-  answer(id, result, error) {
-    this.send(error ? { jsonrpc: "2.0", id, error } : { jsonrpc: "2.0", id, result });
-  }
-}
-
-const blockedError = (reason) => ({ code: -32001, message: `Blocked by the simulation: ${reason} can't be changed here.`, data: { blocked: true } });
-
 export function createCodexGateway({ url, workspace, terminal, ceilings, events, agent = "cosmodex" }) {
   const ctx = { workspace: workspace.replace(/\/+$/, ""), ...ceilings };
-  const gateway = new RouteGateway({ name: "codex", rules: [], events });
-  const clients = new Set();
-  // Engine requests awaiting the candidate, keyed by String(id): the browser may send the id back as
-  // a string; the engine is always answered with its own id.
-  const openRequests = new Map();
-  const broadcast = (msg) => {
-    const line = `data: ${JSON.stringify(msg)}\n\n`;
-    for (const res of clients) res.write(line);
-  };
-  const refuseRequest = (msg, reason) => {
-    events?.record("blocked", { gateway: "codex", agent, method: msg.method, reason });
-    link.answer(msg.id, undefined, blockedError(reason));
-  };
 
-  const link = new EngineLink({
-    url,
-    onState: (state) => broadcast({ method: "cosmodex/engine", params: { state } }),
-    onMessage: (msg) => {
-      if (msg.id !== undefined && msg.method) {
-        // The engine asks the candidate something.
-        if (DECISIONS[msg.method] || USER_INPUT.has(msg.method)) {
-          openRequests.set(String(msg.id), msg);
-          return broadcast(msg);
-        }
-        if (msg.method === "item/permissions/requestApproval") return refuseRequest(msg, "extra permissions");
-        return refuseRequest(msg, msg.method.startsWith("account/") ? "signing in" : "this request");
-      }
-      if (msg.method === "serverRequest/resolved") openRequests.delete(String(msg.params?.requestId));
-      broadcast(msg);
-    },
-  });
-
-  async function refreshSkills() {
+  async function refreshSkills(link) {
     try {
       const res = await link.request("skills/list", { cwds: [ctx.workspace] });
       ctx.skillPaths = new Set((res?.data ?? []).flatMap((entry) => (entry.skills ?? []).filter((k) => k.enabled).map((k) => k.path)));
@@ -250,78 +108,37 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
     }
   }
 
-  const send = (res, status, body) => {
-    res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
-    res.end(JSON.stringify(body));
-  };
-
-  async function rpc(req, res) {
-    let call;
-    try {
-      call = JSON.parse((await readBody(req, 16 * 1024 * 1024)).toString("utf8"));
-    } catch {
-      return send(res, 400, { error: { code: -32700, message: "Parse error" } });
-    }
-    const { method, params } = call ?? {};
-    const decision = typeof method === "string" ? METHODS[method] : undefined;
-    if (decision === undefined) {
-      console.warn(`codex: unrouted method ${String(method).slice(0, 80)}`);
-      return send(res, 404, { error: { code: -32601, message: "Method not found" } });
-    }
-    const allowed = decision === "allow" || (decision === "terminal" && terminal);
-    if (allowed && (method === "turn/start" || method === "turn/steer") && Array.isArray(params?.input) && params.input.some((i) => i?.type === "skill")) {
-      await refreshSkills();
-    }
-    const reason = allowed ? checkParams(method, params, ctx).reason : decision === "terminal" ? "the terminal" : decision;
-    if (reason) {
-      events?.record("blocked", { gateway: "codex", agent, method, reason });
-      return send(res, 403, { error: blockedError(reason) });
-    }
-    try {
-      const result = await link.request(method, checkParams(method, params, ctx).params);
-      send(res, 200, { result });
-    } catch (error) {
-      send(res, 200, { error });
-    }
-  }
-
-  async function respond(req, res) {
-    let answer;
-    try {
-      answer = JSON.parse((await readBody(req)).toString("utf8"));
-    } catch {
-      return send(res, 400, { error: { code: -32700, message: "Parse error" } });
-    }
-    const asked = openRequests.get(String(answer?.id));
-    if (!asked) return send(res, 404, { error: { code: -32602, message: "No open request with that id" } });
-    if (DECISIONS[asked.method]) {
-      const value = answer.result?.decision;
-      if (!DECISIONS[asked.method].includes(value)) {
-        events?.record("blocked", { gateway: "codex", agent, method: asked.method, reason: "this approval option" });
-        return send(res, 403, { error: blockedError("this approval option") });
+  return createJsonRpcGateway({
+    name: "codex",
+    agent,
+    url,
+    // The experimental API carries plan mode and questions; experimental methods the gateway
+    // hasn't classified stay refused.
+    handshake: {
+      method: "initialize",
+      params: { clientInfo: { name: "cosmodex", title: "Cosmodex", version: CODEX_VERSION }, capabilities: { experimentalApi: true } },
+      notify: "initialized",
+    },
+    methods: METHODS,
+    terminal,
+    events,
+    check: async (method, params, link) => {
+      if ((method === "turn/start" || method === "turn/steer") && Array.isArray(params?.input) && params.input.some((i) => i?.type === "skill")) {
+        await refreshSkills(link);
       }
-      events?.record("permission-reply", { gateway: "codex", agent, method: asked.method, reply: value });
-    }
-    openRequests.delete(String(asked.id));
+      return checkParams(method, params, ctx);
+    },
+    ask: (msg) => {
+      if (DECISIONS[msg.method] || USER_INPUT.has(msg.method)) return true;
+      if (msg.method === "item/permissions/requestApproval") return "extra permissions";
+      return msg.method.startsWith("account/") ? "signing in" : "this request";
+    },
     // Only the decision itself goes to the engine; free-form answers (questions) pass as given.
-    link.answer(asked.id, DECISIONS[asked.method] ? { decision: answer.result.decision } : (answer.result ?? {}), undefined);
-    send(res, 200, {});
-  }
-
-  const handler = (req, res, sub) => {
-    const { pathname } = new URL(sub, "http://engine");
-    if (req.method === "GET" && pathname === "/events") {
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
-      res.write(`data: ${JSON.stringify({ method: "cosmodex/engine", params: { state: link.ready ? "ready" : "connecting" } })}\n\n`);
-      for (const msg of openRequests.values()) res.write(`data: ${JSON.stringify(msg)}\n\n`);
-      clients.add(res);
-      req.on("close", () => clients.delete(res));
-      return;
-    }
-    if (req.method === "POST" && pathname === "/rpc") return rpc(req, res);
-    if (req.method === "POST" && pathname === "/respond") return respond(req, res);
-    gateway.notFound(res, { method: req.method, pathname });
-  };
-  handler.link = link;
-  return handler;
+    answer: (asked, result) => {
+      if (!DECISIONS[asked.method]) return { result };
+      if (!DECISIONS[asked.method].includes(result.decision)) return { reason: "this approval option" };
+      return { result: { decision: result.decision }, reply: result.decision };
+    },
+    resolvedId: (msg) => (msg.method === "serverRequest/resolved" ? msg.params?.requestId : undefined),
+  });
 }
