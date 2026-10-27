@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { createEventLog } from "./events.mjs";
 import { createOpenCodeGateway } from "./gateways/opencode.mjs";
 import { createCodexGateway } from "./gateways/codex.mjs";
-import { codexCeilings } from "../policy/render.mjs";
+import { createClaudeGateway } from "./gateways/claude.mjs";
+import { claudeCeilings, codexCeilings } from "../policy/render.mjs";
 import { workspaceDiff, SCOPES } from "./workspace-git.mjs";
 import { PINS, engineOf, validateTaskConfig } from "../policy/schema.mjs";
 
@@ -193,6 +194,9 @@ export function gatewaysFor(policy, events, env = process.env) {
       ceilings: codexCeilings(policy),
       events,
     });
+  }
+  if (policy.agents.includes("cosmo-code") && env.CLAUDE_HOST_URL) {
+    gateways["cosmo-code"] = createClaudeGateway({ url: env.CLAUDE_HOST_URL, ceilings: claudeCeilings(policy), events });
   }
   return gateways;
 }

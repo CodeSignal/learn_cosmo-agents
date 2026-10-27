@@ -113,6 +113,21 @@ export function codexCeilings(config) {
   };
 }
 
+/**
+ * What Cosmo Code may be asked for: models from the allowlist, and the permission modes a
+ * candidate can pick (never bypass; the managed settings disable it too). The ask rules still
+ * apply in every mode, so "Accept edits" can't skip a prompt the task wants.
+ */
+export function claudeCeilings(config) {
+  const asks = config.permissions.preset === "ask";
+  return {
+    models: config.models["cosmo-code"]?.allowed ?? [],
+    modes: ["default", "acceptEdits", "plan"],
+    defaultMode: asks ? "default" : "acceptEdits",
+    webTools: !!config.webTools,
+  };
+}
+
 function codexRequirements(config, env, errors) {
   const baseUrl = (env.OPENAI_BASE_URL || "").trim();
   if (!baseUrl) errors.push("cosmodex is enabled but OPENAI_BASE_URL is not set");
@@ -165,6 +180,7 @@ function claude(config, errors) {
       allow: rules.allow,
       ask: rules.ask,
       deny: [...rules.deny, ...(config.webTools ? [] : ["WebSearch", "WebFetch"])],
+      defaultMode: claudeCeilings(config).defaultMode,
       disableBypassPermissionsMode: "disable",
     },
     allowManagedPermissionRulesOnly: true,
@@ -175,7 +191,12 @@ function claude(config, errors) {
     env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" },
   };
   if (config.sandbox) {
-    settings.sandbox = { enabled: true, allowUnsandboxedCommands: false };
+    // Sandboxed commands would otherwise run without asking, whatever the ask rules say.
+    const asksForBash = rules.ask.some((r) => r === "Bash" || r.startsWith("Bash("));
+    settings.sandbox = { enabled: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: !asksForBash };
+    // Without web tools no host is reachable from the sandbox, and the engine doesn't even ask
+    // (the candidate could otherwise approve a host); user and project settings can't add any.
+    if (!config.webTools) settings.sandbox.network = { allowManagedDomainsOnly: true, allowedDomains: [] };
   }
   return settings;
 }

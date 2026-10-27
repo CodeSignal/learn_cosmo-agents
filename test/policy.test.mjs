@@ -122,12 +122,22 @@ test("Claude managed settings: model ceiling, no bypass, managed-only MCP/hooks/
   assert.deepEqual(s.availableModels, ["claude-sonnet-5-5"]);
   assert.equal(s.enforceAvailableModels, true);
   assert.equal(s.permissions.disableBypassPermissionsMode, "disable");
+  assert.equal(s.permissions.defaultMode, "default"); // the default preset asks, so sessions start in Manual
   assert.deepEqual(s.permissions.deny, ["WebSearch", "WebFetch"]);
   assert.equal(s.allowManagedMcpServersOnly, true);
   assert.deepEqual(s.allowedMcpServers, []);
   assert.equal(s.allowManagedHooksOnly, true);
   assert.equal(s.allowManagedPermissionRulesOnly, true);
-  assert.deepEqual(s.sandbox, { enabled: true, allowUnsandboxedCommands: false });
+  // The default preset asks before Bash, so sandboxed commands mustn't be approved silently.
+  assert.deepEqual(s.sandbox, {
+    enabled: true,
+    allowUnsandboxedCommands: false,
+    autoAllowBashIfSandboxed: false,
+    network: { allowManagedDomainsOnly: true, allowedDomains: [] },
+  });
+  assert.equal(JSON.parse(file(renderPolicy(valid({ ...c, webTools: true }), ENV), ROOT.claude)).sandbox.network, undefined);
+  const open = JSON.parse(file(renderPolicy(valid({ ...c, permissions: { preset: "allow" } }), ENV), ROOT.claude));
+  assert.equal(open.sandbox.autoAllowBashIfSandboxed, true);
   assert.equal(JSON.parse(file(renderPolicy({ ...c, sandbox: false }, ENV), ROOT.claude)).sandbox, undefined);
 });
 

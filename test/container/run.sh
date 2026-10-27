@@ -28,6 +28,7 @@ docker run -d --name "$NAME" \
 # Haiku, Terra and Luna; the task narrows further).
 docker cp test/stub-gateway.mjs "$NAME":/opt/stub-gateway.mjs >/dev/null
 docker cp test/container/cosmodex-check.mjs "$NAME":/opt/cosmodex-check.mjs >/dev/null
+docker cp test/container/cosmo-code-check.mjs "$NAME":/opt/cosmo-code-check.mjs >/dev/null
 docker exec -d "$NAME" sh -c 'STUB_LOG=/tmp/stub.jsonl PORT=4000 node /opt/stub-gateway.mjs'
 # The platform's session user gets the proxy variables in its environment.
 as_root 'env | grep -E "^(OPENAI|ANTHROPIC)_" | sed "s/^/export /" >> /home/runner/.profile'
@@ -138,6 +139,15 @@ out=$(docker exec -u runner "$NAME" node /opt/cosmodex-check.mjs 2>&1); echo "$o
 FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL')))
 check X9 "Cosmodex refusals and approval answers are in the event log" \
   as_root 'grep -q "\"gateway\":\"codex\".*\"reason\":\"configuration\"" /var/lib/agentsim/events/events.jsonl && grep -q "\"gateway\":\"codex\".*\"reply\":\"accept\"" /var/lib/agentsim/events/events.jsonl'
+
+echo
+echo "-- Cosmo Code (Claude engine through the Agent SDK)"
+check C0 "the engine host runs as the session user on loopback only" \
+  as_root '[ "$(ps -o user= -p $(pgrep -f "claude-host/host.mjs" | head -1))" = runner ] && grep -q "0100007F:11F8 00000000:0000 0A" /proc/net/tcp && ! grep -q "00000000:11F8 00000000:0000 0A" /proc/net/tcp'
+out=$(docker exec -u runner "$NAME" node /opt/cosmo-code-check.mjs 2>&1); echo "$out"
+FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL')))
+check C9 "Cosmo Code refusals and approval answers are in the event log" \
+  as_root 'grep -q "\"gateway\":\"claude\".*\"reason\":\"the permission mode\"" /var/lib/agentsim/events/events.jsonl && grep -q "\"gateway\":\"claude\".*\"reply\":\"once\"" /var/lib/agentsim/events/events.jsonl'
 
 echo
 if [ "$FAILS" -eq 0 ]; then echo "all checks passed"; else echo "$FAILS check(s) failed"; fi

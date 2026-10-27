@@ -24,7 +24,7 @@ RUN cd packages/cosmodex && COSMODEX_BASE=/agents/cosmodex/ VITE_ENGINE_PATH=/en
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg sudo bubblewrap git python3 procps jq \
+      ca-certificates curl gnupg sudo bubblewrap socat git python3 procps jq \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -45,6 +45,9 @@ COPY server /opt/agentsim/server
 COPY policy /opt/agentsim/policy
 COPY root /opt/agentsim/root
 COPY scripts /opt/agentsim/scripts
+# Cosmo Code's engine host and its pinned Agent SDK (the engine itself is the pinned claude above).
+COPY engines /opt/agentsim/engines
+RUN cd /opt/agentsim/engines/claude-host && npm ci --omit=optional --no-fund --no-audit
 COPY --from=build /src/dist /opt/agentsim/dist
 COPY --from=ui /work/packages/app/dist /opt/agentsim/dist-agents/opencosmo
 COPY --from=ui /work/packages/cosmodex/dist /opt/agentsim/dist-agents/cosmodex

@@ -23,6 +23,7 @@ const SESSION_USER = "runner";
 const WORKSPACE = "/usercode/FILESYSTEM";
 const OPENCODE_PORT = 4096;
 const CODEX_PORT = 4500;
+const CLAUDE_PORT = 4600;
 // Proxy route and keys, handed to the engines only (never to the server).
 const PROXY_ENV = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"];
 const MARKER = `${STATE_DIR}/applied`;
@@ -90,8 +91,23 @@ function which(bin) {
   throw new Error(`${bin} is not installed`);
 }
 
+/**
+ * The workspace as a git repository (engines show changes against it), with the task's own
+ * files (.codesignal) in the repo-local exclude list, so they stay out of change lists and file
+ * search (cosmetic: the agent can still read them).
+ */
+function gitWorkspace() {
+  const acct = account(SESSION_USER);
+  const script = [
+    "[ -d .git ] || git init -q",
+    'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
+    'grep -qxF ".codesignal/" "$f" 2>/dev/null || echo ".codesignal/" >> "$f"',
+  ].join(" && ");
+  spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
+}
+
 /** The processes to keep running for this task's policy. */
-export function services({ policy, engineEnv, env = process.env, password = crypto.randomBytes(24).toString("base64url") }) {
+export function services({ policy, engineEnv, env = process.env, password = crypto.randomBytes(24).toString("base64url"), hostToken = crypto.randomBytes(24).toString("base64url") }) {
   const proxy = Object.fromEntries(PROXY_ENV.filter((k) => env[k]).map((k) => [k, env[k]]));
   const list = [];
   const serverEnv = {
@@ -113,18 +129,8 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
       cwd: WORKSPACE,
       env: { ...engineEnv.opencode, ...proxy, OPENCODE_SERVER_PASSWORD: password },
       port: OPENCODE_PORT,
-      // OpenCode treats a folder without git as rooted at /, which the gateway refuses. The
-      // task's own files (.codesignal) go into the repo-local exclude list, so they stay out of
-      // OpenCode's change list and file search (cosmetic: the agent can still read them).
-      prepare: () => {
-        const acct = account(SESSION_USER);
-        const script = [
-          "[ -d .git ] || git init -q",
-          'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
-          'grep -qxF ".codesignal/" "$f" 2>/dev/null || echo ".codesignal/" >> "$f"',
-        ].join(" && ");
-        spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
-      },
+      // OpenCode treats a folder without git as rooted at /, which the gateway refuses.
+      prepare: gitWorkspace,
     });
   }
   if (policy.agents.includes("cosmodex")) {
@@ -138,6 +144,22 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
       cwd: WORKSPACE,
       env: { ...engineEnv.codex, ...proxy },
       port: CODEX_PORT,
+    });
+  }
+  if (policy.agents.includes("cosmo-code")) {
+    serverEnv.CLAUDE_HOST_URL = `ws://127.0.0.1:${CLAUDE_PORT}/?token=${hostToken}`;
+    list.push({
+      name: "claude",
+      user: SESSION_USER,
+      // The engine host (Agent SDK) drives the pinned engine; the policy itself comes from
+      // /etc/claude-code/managed-settings.json, which the engine enforces.
+      cmd: process.execPath,
+      args: [path.join(APP, "engines", "claude-host", "host.mjs")],
+      cwd: WORKSPACE,
+      env: { ...engineEnv.claude, ...proxy, COSMO_CODE_PORT: String(CLAUDE_PORT), COSMO_CODE_TOKEN: hostToken, WORKSPACE, CLAUDE_BIN: which("claude") },
+      port: CLAUDE_PORT,
+      // The Changes pane needs a git repository, as in the original.
+      prepare: gitWorkspace,
     });
   }
   list.unshift({ name: "server", user: "agentsim", cmd: process.execPath, args: [path.join(APP, "server", "index.mjs")], env: serverEnv, port: 3000 });
