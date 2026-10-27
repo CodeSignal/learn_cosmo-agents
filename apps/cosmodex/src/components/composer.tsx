@@ -1,6 +1,6 @@
 // The composer: project chip (home), input, "+" menu, permissions menu, model and effort popover,
 // and Send / Stop / Resume. An open approval for the thread replaces it (see ApprovalCard).
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For, Show, type JSX } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { chooseModel, effortLabel, modelName, PROJECT, send, setPlanMode, state, stop, type ThreadView } from "../store"
@@ -84,6 +84,62 @@ function ModelPopover() {
   )
 }
 
+const PROJECT_LOCKED = "Not available in this task"
+
+/** "Change project" (S23): a search box, the task's one project (checked), then New project and
+ * Don't work in a project, which a task can't offer. */
+export function ProjectPopover(props: { trigger: (toggle: () => void) => JSX.Element; placement?: "above" | "below" }) {
+  const [query, setQuery] = createSignal("")
+  return (
+    <Popover placement={props.placement ?? "above"} class="cx-project-popover" trigger={(_, toggle) => props.trigger(toggle)}>
+      {(close) => (
+        <div role="dialog" aria-label="Change project">
+          <label class="cx-project-search">
+            <Icon name="search" size={14} />
+            <input
+              placeholder="Search projects"
+              role="combobox"
+              aria-expanded="true"
+              value={query()}
+              ref={(el) => queueMicrotask(() => el.focus())}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+              onKeyDown={(e) => e.key === "Enter" && close()}
+            />
+          </label>
+          <ul class="cx-menu" role="listbox" aria-label="Suggestions">
+            <Show when={PROJECT.toLowerCase().includes(query().trim().toLowerCase())} fallback={<li class="cx-empty-row">No projects</li>}>
+              <li>
+                <button class="cx-menu-item" role="option" aria-selected="true" onClick={close}>
+                  <Icon name="folder" size={14} />
+                  <span class="cx-menu-text">
+                    <span class="cx-menu-label">{PROJECT}</span>
+                  </span>
+                  <Icon name="check" size={14} />
+                </button>
+              </li>
+            </Show>
+            <li class="cx-menu-sep" role="separator" />
+            <For each={[{ icon: "plus" as const, label: "New project" }, { icon: "close" as const, label: "Don't work in a project" }]}>
+              {(item) => (
+                <li>
+                  <button class="cx-menu-item" role="option" disabled data-locked="" title={PROJECT_LOCKED}>
+                    <Icon name={item.icon} size={14} />
+                    <span class="cx-menu-text">
+                      <span class="cx-menu-label">{item.label}</span>
+                      <span class="cx-menu-subtitle">{PROJECT_LOCKED}</span>
+                    </span>
+                    <Icon name="lock" size={14} />
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </div>
+      )}
+    </Popover>
+  )
+}
+
 export function Composer(props: { thread?: ThreadView }) {
   const [empty, setEmpty] = createSignal(true)
   let submit = () => {}
@@ -94,9 +150,13 @@ export function Composer(props: { thread?: ThreadView }) {
   return (
     <div class="cx-composer">
       <Show when={!props.thread}>
-        <div class="cx-project-chip">
-          <Icon name="folder" size={14} /> {PROJECT} <Icon name="chevronDown" size={12} />
-        </div>
+        <ProjectPopover
+          trigger={(toggle) => (
+            <button class="cx-project-chip" aria-label={`Change project: ${PROJECT}`} onClick={toggle}>
+              <Icon name="folder" size={14} /> {PROJECT} <Icon name="chevronDown" size={12} />
+            </button>
+          )}
+        />
       </Show>
       <PromptInput
         placeholder={state.planMode ? "Describe your task to generate a plan..." : props.thread ? "Work with Cosmodex" : "Do anything"}

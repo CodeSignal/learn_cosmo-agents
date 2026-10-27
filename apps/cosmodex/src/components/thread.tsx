@@ -2,7 +2,7 @@
 // ("Ran …" → Shell card, "Created/Edited …"), and the turn line ("Working for Ns" → "Worked for
 // Ns" / "You stopped after Ns").
 import { createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
-import { Markdown } from "@opencode-ai/session-ui/markdown"
+import { RichMarkdown } from "./rich-markdown"
 import { Icon } from "../icons"
 import { Composer } from "./composer"
 import { ApprovalCard } from "./approval"
@@ -139,7 +139,7 @@ function Item(props: { item: ThreadItem; streaming: boolean }) {
         {(item) => (
           <>
             <Show when={withoutPlan(item().text)}>
-              <Markdown class="cx-assistant" text={withoutPlan(item().text)} streaming={props.streaming} />
+              <RichMarkdown class="cx-assistant" text={withoutPlan(item().text)} streaming={props.streaming} />
             </Show>
             <Show when={proposedPlan(item().text)}>{(plan) => <PlanCard plan={plan()} />}</Show>
           </>

@@ -1451,3 +1451,107 @@ button:disabled {
   line-height: 1.35;
   color: var(--v2-text-text-muted);
 }
+
+/* Code blocks and tables in replies (S31) */
+.cx-rich [data-slot="markdown-copy-button"] {
+  display: none;
+}
+.cx-rich [data-component="markdown-code"] {
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--v2-background-bg-layer-02);
+}
+.cx-code-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px 0 14px;
+  font-size: 13px;
+  color: var(--v2-text-text-base);
+}
+.cx-code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cx-rich [data-component="markdown-code"] pre {
+  background: transparent !important;
+}
+.cx-rich [data-component="markdown-code"][data-wrap] pre {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+}
+.cx-code-head [aria-pressed="true"] {
+  color: var(--v2-text-text-accent);
+}
+.cx-table-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-bottom: -4px;
+}
+.cx-table-dialog {
+  width: min(1100px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+}
+.cx-table-dialog-head {
+  display: flex;
+  align-items: center;
+}
+.cx-table-dialog-body {
+  overflow: auto;
+}
+.cx-table-dialog-body table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.cx-table-dialog-body th,
+.cx-table-dialog-body td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+  text-align: left;
+}
+
+/* Change project (S23) */
+.cx-project-popover {
+  width: 260px;
+}
+.cx-project-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+  color: var(--v2-text-text-muted);
+}
+.cx-project-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--v2-text-text-base);
+  background: transparent;
+}
+.cx-project-chip {
+  cursor: pointer;
+}
+.cx-home-project {
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 6px;
+  cursor: pointer;
+}
+.cx-home-title .cx-popover-anchor {
+  display: inline-block;
+}
+.cx-home-title .cx-popover {
+  font-size: 14px;
+  font-weight: normal;
+  text-align: left;
+}
+.cx-rich table {
+  width: 100%;
+}

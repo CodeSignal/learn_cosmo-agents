@@ -4,12 +4,13 @@ import { Match, Show, Switch } from "solid-js"
 import { Rail, Sidebar, TitleBar } from "./components/chrome"
 import { RenameDialog } from "./components/chat-actions"
 import { SettingsNav, SettingsPage } from "./components/settings"
-import { Composer } from "./components/composer"
+import { Composer, ProjectPopover } from "./components/composer"
 import { ThreadPage } from "./components/thread"
 import { activeThread, PROJECT, state } from "./store"
 import { onShortcut } from "./actions"
 import { CommandMenu } from "./components/command-menu"
 import { TabsPane } from "./components/tabs-pane"
+import { TableDialog } from "./components/rich-markdown"
 import { TabsToggle } from "./components/thread"
 
 function Mark() {
@@ -34,7 +35,16 @@ function Home() {
       <div class="cx-home-center">
         <Mark />
         <h1 class="cx-home-title">
-          What should we work on in <u>{PROJECT}</u>?
+          What should we work on in{" "}
+          <ProjectPopover
+            placement="below"
+            trigger={(toggle) => (
+              <button class="cx-home-project" aria-label={`Change project: ${PROJECT}`} onClick={toggle}>
+                {PROJECT}
+              </button>
+            )}
+          />
+          ?
         </h1>
       </div>
       <div class="cx-bottom">
@@ -97,6 +107,7 @@ export function App() {
           </div>
           <RenameDialog />
           <CommandMenu />
+          <TableDialog />
           <Show when={state.toast}>
             <div class="cx-toast" role="status">
               {state.toast}

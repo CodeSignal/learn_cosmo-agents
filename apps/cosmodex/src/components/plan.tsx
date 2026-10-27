@@ -2,7 +2,7 @@
 // (Plan header, Copy, Download plan, rendered plan), and "Implement this plan?" (replaces the
 // composer after a plan until answered).
 import { createSignal, For, Index, Show } from "solid-js"
-import { Markdown } from "@opencode-ai/session-ui/markdown"
+import { RichMarkdown } from "./rich-markdown"
 import { Icon } from "../icons"
 import { answerPlan, answerQuestions, showToast } from "../store"
 import type { EngineMessage } from "../engine"
@@ -46,7 +46,7 @@ export function PlanCard(props: { plan: string }) {
           <Icon name="copy" size={14} />
         </button>
       </header>
-      <Markdown class="cx-plan-body" text={props.plan} />
+      <RichMarkdown class="cx-plan-body" text={props.plan} />
     </section>
   )
 }
