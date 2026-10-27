@@ -1,6 +1,6 @@
 // @refresh reload
 
-import * as Sentry from "@sentry/solid"
+import { HashRouter } from "@solidjs/router"
 import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
 import { loadInitialLocale } from "@/context/language"
@@ -96,11 +96,11 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
 }
 
+// OpenCosmo: the engine is reached through the simulation's gateway on the same origin.
 const getCurrentUrl = () => {
-  if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
-  if (import.meta.env.DEV)
+  if (import.meta.env.DEV && !import.meta.env.VITE_ENGINE_PATH)
     return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
-  return location.origin
+  return new URL(import.meta.env.VITE_ENGINE_PATH ?? "/", location.origin).href.replace(/\/$/, "")
 }
 
 const getDefaultUrl = () => {
@@ -130,25 +130,6 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
 }
 
-if (import.meta.env.VITE_SENTRY_DSN) {
-  Sentry.init({
-    dsn: import.meta.env.VITE_SENTRY_DSN,
-    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
-    release: import.meta.env.VITE_SENTRY_RELEASE ?? `web@${pkg.version}`,
-    initialScope: {
-      tags: {
-        platform: "web",
-      },
-    },
-    integrations: (integrations) => {
-      return integrations.filter(
-        (i) =>
-          i.name !== "Breadcrumbs" && !(import.meta.env.OPENCODE_CHANNEL === "prod" && i.name === "GlobalHandlers"),
-      )
-    },
-  })
-}
-
 if (root instanceof HTMLElement) {
   void loadInitialLocale().then((locale) => {
     const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
@@ -169,6 +150,9 @@ if (root instanceof HTMLElement) {
               defaultServer={ServerConnection.Key.make(getDefaultUrl())}
               canonicalLocalServer={ServerConnection.key(server)}
               servers={[server]}
+              // OpenCosmo: served under a sub-path inside the simulation's iframe; routing in the
+              // hash keeps every route path exactly as upstream expects it.
+              router={HashRouter}
               disableHealthCheck
             />
           </AppBaseProviders>
