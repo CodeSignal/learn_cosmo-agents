@@ -17,9 +17,11 @@ FROM oven/bun:1.3.14 AS ui
 WORKDIR /work
 COPY vendor/opencode ./
 COPY apps/cosmodex ./packages/cosmodex
-RUN bun install --filter "@opencode-ai/app" --filter "@cosmo/cosmodex" --frozen-lockfile
+COPY apps/cosmo-code ./packages/cosmo-code
+RUN bun install --filter "@opencode-ai/app" --filter "@cosmo/cosmodex" --filter "@cosmo/cosmo-code" --frozen-lockfile
 RUN cd packages/app && OPENCOSMO_BASE=/agents/opencosmo/ VITE_ENGINE_PATH=/engine/opencosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build
 RUN cd packages/cosmodex && COSMODEX_BASE=/agents/cosmodex/ VITE_ENGINE_PATH=/engine/cosmodex VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
+RUN cd packages/cosmo-code && COSMO_CODE_BASE=/agents/cosmo-code/ VITE_ENGINE_PATH=/engine/cosmo-code VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
 
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -51,6 +53,7 @@ RUN cd /opt/agentsim/engines/claude-host && npm ci --omit=optional --no-fund --n
 COPY --from=build /src/dist /opt/agentsim/dist
 COPY --from=ui /work/packages/app/dist /opt/agentsim/dist-agents/opencosmo
 COPY --from=ui /work/packages/cosmodex/dist /opt/agentsim/dist-agents/cosmodex
+COPY --from=ui /work/packages/cosmo-code/dist /opt/agentsim/dist-agents/cosmo-code
 RUN mkdir -p /opt/agentsim/bin \
     && mv /opt/agentsim/root/bin/* /opt/agentsim/bin/ && rmdir /opt/agentsim/root/bin \
     && install -m 0440 -o root -g root /opt/agentsim/root/sudoers /etc/sudoers.d/agentsim \

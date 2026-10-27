@@ -1,0 +1,24 @@
+{
+  "name": "@cosmo/cosmo-code",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cosmo Code: the agent UI of the simulation in the structure of a desktop coding-agent app, on the real Claude Code engine",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@opencode-ai/session-ui": "workspace:*",
+    "@opencode-ai/ui": "workspace:*",
+    "diff": "catalog:",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-solid": "catalog:"
+  }
+}

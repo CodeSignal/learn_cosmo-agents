@@ -167,6 +167,23 @@
         "drizzle-kit": "catalog:",
       },
     },
+    "packages/cosmo-code": {
+      "name": "@cosmo/cosmo-code",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode-ai/session-ui": "workspace:*",
+        "@opencode-ai/ui": "workspace:*",
+        "diff": "catalog:",
+        "solid-js": "catalog:",
+      },
+      "devDependencies": {
+        "@tailwindcss/vite": "catalog:",
+        "tailwindcss": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plugin-solid": "catalog:",
+      },
+    },
     "packages/cosmodex": {
       "name": "@cosmo/cosmodex",
       "version": "0.1.0",
@@ -667,6 +684,8 @@
     "@corvu/drawer": ["@corvu/drawer@0.2.4", "", { "dependencies": { "@corvu/dialog": "~0.2.4", "@corvu/utils": "~0.4.2", "@solid-primitives/memo": "^1.4.1", "solid-transition-size": "~0.1.4" }, "peerDependencies": { "solid-js": "^1.8" } }, "sha512-7jQoGZ8ROB9CmXam2nMY2wEskU3IoFwZQywkF/7vrBc/edGsPv7mOVQ1GN6G+4nd7nrMZ3UtqHAhmRh9V0azlw=="],
 
     "@corvu/utils": ["@corvu/utils@0.4.2", "", { "dependencies": { "@floating-ui/dom": "^1.6.11" }, "peerDependencies": { "solid-js": "^1.8" } }, "sha512-Ox2kYyxy7NoXdKWdHeDEjZxClwzO4SKM8plAaVwmAJPxHMqA0rLOoAsa+hBDwRLpctf+ZRnAd/ykguuJidnaTA=="],
+
+    "@cosmo/cosmo-code": ["@cosmo/cosmo-code@workspace:packages/cosmo-code"],
 
     "@cosmo/cosmodex": ["@cosmo/cosmodex@workspace:packages/cosmodex"],
 
