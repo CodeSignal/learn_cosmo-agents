@@ -47,6 +47,9 @@ test("only the parameters a method declares pass; sessions and messages are ids"
   assert.equal(reason("session/fork", { sessionId: SID, upToMessageId: SID, title: "copy" }), undefined);
   assert.match(reason("session/send", { text: "   " }), /message/);
   assert.match(reason("session/archive", { sessionId: SID, archived: "yes" }), /archived/);
+  assert.equal(reason("files/search", { query: "gre", limit: 20 }), undefined);
+  assert.match(reason("files/search", { query: "x".repeat(300) }), /search/);
+  assert.match(reason("files/search", { query: "a", root: "/" }), /option/);
 });
 
 test("answers: allow or deny; always-allow only the rule the engine suggested; edited input only for questions", () => {

@@ -24,6 +24,7 @@ export const METHODS = {
   "session/rewindFiles": "allow",
   "session/context": "allow",
   "session/close": "allow",
+  "files/search": "allow",
   // Transcripts are the task's record: the candidate can archive a session, not delete it.
   "session/delete": HISTORY,
 };
@@ -41,6 +42,7 @@ const PARAMS = {
   "session/rewindFiles": ["sessionId", "userMessageId", "dryRun"],
   "session/context": ["sessionId"],
   "session/close": ["sessionId"],
+  "files/search": ["query", "limit"],
 };
 const REQUIRED = { sessionId: ["session/read", "session/interrupt", "session/configure", "session/rename", "session/fork", "session/archive", "session/rewindFiles", "session/context", "session/close"] };
 
@@ -67,6 +69,8 @@ export function checkParams(method, params = {}, ctx) {
   if (method === "session/send" && (typeof p.text !== "string" || !p.text.trim() || p.text.length > MAX_TEXT)) return { reason: "this message" };
   if (p.title !== undefined && (typeof p.title !== "string" || p.title.length > 200)) return { reason: "the title" };
   for (const flag of ["archived", "dryRun"]) if (p[flag] !== undefined && typeof p[flag] !== "boolean") return { reason: `the "${flag}" option` };
+  if (p.query !== undefined && (typeof p.query !== "string" || p.query.length > 200)) return { reason: "the search" };
+  if (p.limit !== undefined && !(Number.isInteger(p.limit) && p.limit > 0 && p.limit <= 100)) return { reason: "the search" };
   return { params: p };
 }
 

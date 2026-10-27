@@ -108,7 +108,21 @@ function sse(res) {
 
 const usage = { input_tokens: 10, output_tokens: 5 };
 
-function anthropic(req, res, body) {
+/** The prompt that started the current turn (tool results and replies since then don't count). */
+function turnPrompt(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    const text = Array.isArray(m.content) && m.content.some((c) => c.type === "tool_result") ? "" : textOf(m.content);
+    if (/\S/.test(text) && !/^\s*<system-reminder>/.test(text)) return text;
+  }
+  return "";
+}
+
+function anthropic(req, res, body, waited = false) {
+  // WAIT: <seconds> holds back every reply of that turn, so it stays in progress (task list, Stop).
+  const wait = waited ? null : /\bWAIT:\s*(\d+)/.exec(turnPrompt(body.messages || []));
+  if (wait) return void setTimeout(() => anthropic(req, res, body, true), Number(wait[1]) * 1000);
   const p = plan(body.model, lastUserText(body.messages || []), body.tools);
   const msgId = id("msg");
   const blocks = p.kind === "tool"
@@ -193,7 +207,7 @@ const STUB_MARKDOWN = [
 /**
  * Codex scripts. RUN: <cmd> runs a command; ADD: <path> <text> creates a file; REPLACE: <path>
  * "<old line>" => "<new line>" edits one line (quotes keep the indentation exact); ASK asks a question (plan mode); PLANTEXT answers with a plan.
- * WAIT: <seconds> (any agent) holds the reply back, so a turn stays in progress for follow-ups and Stop.
+ * WAIT: <seconds> holds the reply back (Claude: every reply of the turn), so a turn stays in progress.
  * MD answers with Markdown: heading, emphasis, lists, a code block, a table and a quote.
  */
 function codexScript(input, user) {

@@ -107,5 +107,18 @@ if (sid) {
     JSON.stringify([read.body.result?.messages?.length, renamed.status, fork.body, archived.status, row]).slice(0, 300));
 }
 
+// @ mentions search the workspace; the app's own tools (task list, next step) never ask.
+const found = await rpc("files/search", { query: "hello", limit: 10 });
+const outside = await rpc("files/search", { query: "passwd", root: "/etc" });
+report("C11", "file search lists workspace files, and only takes a query",
+  (found.body.result?.files ?? []).includes("notes/hello.txt") && outside.status === 403, JSON.stringify([found.body, outside.status]).slice(0, 300));
+const plan = { items: [{ content: "Read the module", status: "completed" }, { content: "Write tests", status: "in_progress" }] };
+const app = await rpc("session/send", { text: `CALL: mcp__cosmo_turn__update_plan ${JSON.stringify(plan)}` });
+const appSid = app.body.result?.sessionId;
+const appDone = await ev.waitFor((m) => m.method === "session/message" && m.params?.sessionId === appSid && m.params.message?.type === "result");
+const asked = ev.seen.some((m) => m.method === "session/permission" && m.params?.sessionId === appSid);
+const shown = ev.seen.some((m) => m.method === "session/message" && m.params?.sessionId === appSid && JSON.stringify(m.params.message).includes("Task list shown."));
+report("C12", "the app's task list tool runs without a permission prompt", !!appDone && !asked && shown, JSON.stringify([!!appDone, asked, shown]));
+
 ev.close();
 process.exit(failed ? 1 : 0);

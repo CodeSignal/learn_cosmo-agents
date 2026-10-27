@@ -6,7 +6,7 @@
 //
 // Client → host:  initialize · session/list · session/read · session/send · session/interrupt ·
 //                 session/configure · session/rename · session/fork · session/archive ·
-//                 session/rewindFiles · session/context · session/close
+//                 session/rewindFiles · session/context · session/close · files/search
 // Host → client:  session/message {sessionId, message}   every SDK message, as it arrives
 //                 session/state {sessionId, state}       "running" | "idle"
 //                 session/permission (request)           the engine asks before using a tool
@@ -16,7 +16,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
-import { query, listSessions, getSessionMessages, getSessionInfo, renameSession, forkSession, tagSession } from "@anthropic-ai/claude-agent-sdk";
+import { query, listSessions, getSessionMessages, getSessionInfo, renameSession, forkSession, tagSession, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 
 const PORT = Number(process.env.COSMO_CODE_PORT ?? 4600);
 const TOKEN = process.env.COSMO_CODE_TOKEN ?? "";
@@ -35,6 +36,36 @@ if (!TOKEN) {
   console.error("COSMO_CODE_TOKEN is required");
   process.exit(2);
 }
+
+// The app's own tools, as the desktop app gives them to the engine: the task list under the latest
+// message and the next-step box at the end of a turn. They only report back; the UI draws them
+// from the calls in the transcript, so the handlers just acknowledge.
+const APP_TOOLS = "cosmo_turn";
+const appTools = () =>
+  createSdkMcpServer({
+    name: APP_TOOLS,
+    version: "1.0.0",
+    tools: [
+      tool(
+        "update_plan",
+        "Keep the task list the app shows under your latest message while you work. Send the whole plan: short imperative steps in order, exactly one in_progress while working. Call it again as each step finishes. It disappears when the turn ends.",
+        {
+          items: z.array(z.object({ content: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })).min(1).max(12),
+        },
+        async () => ({ content: [{ type: "text", text: "Task list shown." }] }),
+      ),
+      tool(
+        "wrap_up",
+        "Fill the next-step box the app shows at the end of your turn: a two-or-three-sentence recap of what is now true, and, when the user has a decision to make, one short question with one or two buttons that answer it (the first is the recommendation). Call it once, when the turn's work is done, before your closing message.",
+        {
+          recap: z.string().max(600),
+          ask: z.string().max(200).optional(),
+          actions: z.array(z.object({ label: z.string().max(40), message: z.string().max(600).optional() })).max(2).optional(),
+        },
+        async () => ({ content: [{ type: "text", text: "Next-step box shown." }] }),
+      ),
+    ],
+  });
 
 /** Options every session gets; only model, permission mode and effort vary. */
 const base = () => ({
@@ -99,6 +130,7 @@ function openSession(sessionId, settings, { resume = false, resumeAt } = {}) {
       ...(settings.model ? { model: settings.model } : {}),
       ...(settings.permissionMode ? { permissionMode: settings.permissionMode } : {}),
       ...(settings.effort ? { effort: settings.effort } : {}),
+      mcpServers: { [APP_TOOLS]: appTools() },
       canUseTool: (toolName, toolInput, opts) => decide(session, toolName, toolInput, opts),
     },
   });
@@ -157,6 +189,8 @@ function latestPlan(since) {
 
 /** The engine asks before using a tool: the candidate answers through the gateway. */
 async function decide(session, toolName, input, opts) {
+  // The app's own tools only draw something; they never need the candidate's go-ahead.
+  if (toolName.startsWith(`mcp__${APP_TOOLS}__`)) return { behavior: "allow", updatedInput: input };
   try {
     const answer = await ask(
       "session/permission",
@@ -241,6 +275,57 @@ async function engineInfo() {
   }
 }
 
+// ── files (for @ mentions) ───────────────────────────────────────────────────────────────────
+
+const SKIP = new Set([".git", "node_modules", ".codesignal", ".venv", "__pycache__", ".next", "dist", "build"]);
+let fileCache = { at: 0, files: [] };
+
+/** The workspace's files (relative paths), cached for a few seconds. */
+function workspaceFiles() {
+  if (Date.now() - fileCache.at < 5000) return fileCache.files;
+  const files = [];
+  const walk = (dir, rel) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (files.length >= 20_000) return;
+      if (SKIP.has(e.name)) continue;
+      const relPath = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(dir, e.name), relPath);
+      else if (e.isFile()) files.push(relPath);
+    }
+  };
+  walk(WORKSPACE, "");
+  fileCache = { at: Date.now(), files };
+  return files;
+}
+
+/** Files whose path contains the query's letters in order; name matches and short paths first. */
+function searchFiles(query, limit) {
+  const q = query.toLowerCase();
+  const scored = [];
+  for (const file of workspaceFiles()) {
+    const lower = file.toLowerCase();
+    let at = -1;
+    let ok = true;
+    for (const ch of q) {
+      at = lower.indexOf(ch, at + 1);
+      if (at < 0) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const name = lower.slice(lower.lastIndexOf("/") + 1);
+    scored.push({ file, score: (name.includes(q) ? 0 : lower.includes(q) ? 1 : 2) * 1000 + file.length });
+  }
+  return scored.sort((a, b) => a.score - b.score).slice(0, limit).map((s) => s.file);
+}
+
 const handlers = {
   async initialize() {
     return { workspace: WORKSPACE, modes: [...MODES], efforts: [...EFFORTS], defaultMode: managedDefaultMode(), ...(await engineInfo()) };
@@ -295,6 +380,9 @@ const handlers = {
   async "session/context"({ sessionId }) {
     const session = live.get(sessionId);
     return session ? await session.q.getContextUsage() : null;
+  },
+  async "files/search"({ query = "", limit = 20 }) {
+    return { files: searchFiles(String(query), Math.min(Number(limit) || 20, 100)) };
   },
   async "session/close"({ sessionId }) {
     live.get(sessionId)?.close();
