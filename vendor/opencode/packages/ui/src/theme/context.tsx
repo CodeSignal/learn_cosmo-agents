@@ -44,6 +44,7 @@ function knownThemes() {
 }
 
 const names: Record<string, string> = {
+  cosmo: "Cosmo",
   "oc-2": "OC-2",
   amoled: "AMOLED",
   aura: "Aura",

@@ -10,6 +10,7 @@ import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { authFromToken } from "@/utils/server"
 import pkg from "../package.json"
+import "./opencosmo.css"
 import { ServerConnection } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
@@ -70,7 +71,7 @@ const notify: Platform["notify"] = async (title, description, onClick) => {
 
   const notification = new Notification(title, {
     body: description ?? "",
-    icon: "https://opencode.ai/favicon-96x96-v3.png",
+    icon: new URL("favicon-96x96-v3.png", location.href).href,
   })
 
   notification.onclick = () => {
@@ -80,9 +81,26 @@ const notify: Platform["notify"] = async (title, description, onClick) => {
   }
 }
 
+// OpenCosmo: OpenCode's own site (docs, feedback, help) is replaced by the simulation's help,
+// which the surrounding shell shows.
+const isUpstreamSite = (url: URL) => url.hostname === "opencode.ai" || url.hostname.endsWith(".opencode.ai")
+const openSimulationHelp = () => window.parent?.postMessage({ type: "agentsim:help" }, location.origin)
+
+document.addEventListener(
+  "click",
+  (event) => {
+    const link = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null
+    if (!link || !URL.canParse(link.href) || !isUpstreamSite(new URL(link.href))) return
+    event.preventDefault()
+    openSimulationHelp()
+  },
+  true,
+)
+
 const openExternal: Platform["openExternal"] = (value) => {
   if (!URL.canParse(value)) return
   const url = new URL(value)
+  if (isUpstreamSite(url)) return openSimulationHelp()
   if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "mailto:") return
   window.open(url.href, "_blank", "noopener,noreferrer")
 }
