@@ -14,7 +14,12 @@ function accepted(autoAccept: Record<string, boolean>, sessionID: string, direct
   return autoAccept[key] ?? autoAccept[sessionID]
 }
 
+// OpenCosmo: the task decides which actions need approval, so permission requests are never
+// answered automatically (the toggles refuse; a stale saved choice is ignored here).
+const AUTO_ACCEPT_LOCKED = true
+
 export function isDirectoryAutoAccepting(autoAccept: Record<string, boolean>, directory: string) {
+  if (AUTO_ACCEPT_LOCKED) return false
   const key = directoryAcceptKey(directory)
   return autoAccept[key] ?? false
 }
@@ -43,6 +48,7 @@ export function autoRespondsPermission(
   permission: { sessionID: string },
   directory?: string,
 ) {
+  if (AUTO_ACCEPT_LOCKED) return false
   const value = sessionAutoAccept(autoAccept, session, permission, directory)
   if (value !== undefined) return value
   return directory ? isDirectoryAutoAccepting(autoAccept, directory) : false
@@ -54,6 +60,7 @@ export function sessionAutoAccept(
   permission: { sessionID: string },
   directory?: string,
 ) {
+  if (AUTO_ACCEPT_LOCKED) return false
   return sessionLineage(session, permission.sessionID)
     .map((id) => accepted(autoAccept, id, directory))
     .find((item): item is boolean => item !== undefined)

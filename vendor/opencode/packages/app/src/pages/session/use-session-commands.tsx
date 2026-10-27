@@ -322,6 +322,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const active = sessionID
       ? permission.isAutoAccepting(sessionID, sdk().directory)
       : permission.isAutoAcceptingDirectory(sdk().directory)
+    // OpenCosmo: auto-accept can't be turned on; the refused toggle already said so.
+    if (!active) return
     showToast({
       title: active
         ? language.t("toast.permissions.autoaccept.on.title")

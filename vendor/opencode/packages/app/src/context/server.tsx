@@ -4,6 +4,7 @@ import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
 import { ServerScope } from "@/utils/server-scope"
+import { showToast } from "@/utils/toast"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
@@ -287,6 +288,11 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       if (state.active !== input) setState("active", input)
     }
 
+    // OpenCosmo: the simulation's engine is the only server; adding or removing one is refused
+    // like the other locked settings.
+    const refuseServerChange = () =>
+      showToast({ variant: "error", title: "Blocked by the simulation: servers can't be changed here." })
+
     function add(input: ServerConnection.Http) {
       const url_ = normalizeServerUrl(input.http.url)
       if (!url_) return
@@ -358,8 +364,11 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         return current()
       },
       setActive,
-      add,
-      remove,
+      add: (_input: ServerConnection.Http): ServerConnection.Http | undefined => {
+        refuseServerChange()
+        return undefined
+      },
+      remove: (_key: ServerConnection.Key) => refuseServerChange(),
       scope,
       projects: {
         ...projects,

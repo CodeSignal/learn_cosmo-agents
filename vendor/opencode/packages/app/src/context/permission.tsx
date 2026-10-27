@@ -14,6 +14,7 @@ import { useSettings } from "./settings"
 import { requireServerKey } from "@/utils/session-route"
 import type { ServerScope } from "@/utils/server-scope"
 import { normalizePermissionRequest } from "./global-sync/utils"
+import { showToast } from "@/utils/toast"
 import {
   acceptKey,
   directoryAcceptKey,
@@ -164,14 +165,15 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       isAutoAcceptingDirectory(directory: string) {
         return selected().isAutoAcceptingDirectory(directory)
       },
-      toggleAutoAccept(sessionID: string, directory: string) {
-        selected().toggleAutoAccept(sessionID, directory)
+      // OpenCosmo: turning on auto-accept is refused like the other locked settings.
+      toggleAutoAccept(_sessionID: string, _directory: string) {
+        refuseAutoAccept()
       },
-      toggleAutoAcceptDirectory(directory: string) {
-        selected().toggleAutoAcceptDirectory(directory)
+      toggleAutoAcceptDirectory(_directory: string) {
+        refuseAutoAccept()
       },
-      enableAutoAccept(sessionID: string, directory: string) {
-        selected().enableAutoAccept(sessionID, directory)
+      enableAutoAccept(_sessionID: string, _directory: string) {
+        refuseAutoAccept()
       },
       disableAutoAccept(sessionID: string, directory?: string) {
         selected().disableAutoAccept(sessionID, directory)
@@ -183,6 +185,10 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
   },
 })
+
+function refuseAutoAccept() {
+  showToast({ variant: "error", title: "Blocked by the simulation: auto-accepting permissions can't be turned on here." })
+}
 
 type PermissionState = ReturnType<typeof createServerPermissionState>
 type PermissionEvent = Parameters<Parameters<ServerSDK["event"]["listen"]>[0]>[0]
