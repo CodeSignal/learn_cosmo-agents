@@ -10,6 +10,7 @@ const switcherEl = document.getElementById('agent-switcher');
 const statusEl = document.getElementById('agent-status');
 const frames = new Map();
 let session = null;
+let helpModal = null;
 
 function showMessage(text) {
   messageText.textContent = text;
@@ -103,12 +104,16 @@ async function initializeHelpModal() {
     console.error('Failed to load help content:', error);
     content = '<p>Help content could not be loaded.</p>';
   }
-  const helpModal = Modal.createHelpModal({ title: 'Help', content });
+  helpModal = Modal.createHelpModal({ title: 'Help', content });
   document.getElementById('btn-help').addEventListener('click', () => helpModal.open());
 }
 
 async function initialize() {
   await initializeHelpModal();
+  // An agent UI asks for help instead of opening its vendor's website.
+  window.addEventListener('message', (event) => {
+    if (event.origin === window.location.origin && event.data?.type === 'agentsim:help') helpModal.open();
+  });
   try {
     const { ok, body } = await fetchJson('/api/session');
     if (!ok) throw new Error(body.error || 'session unavailable');

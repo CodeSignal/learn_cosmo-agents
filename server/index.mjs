@@ -52,7 +52,10 @@ function sendFile(res, file) {
       res.writeHead(404, { "content-type": "text/plain" });
       return res.end("Not found");
     }
-    res.writeHead(200, { "content-type": MIME[path.extname(file)] || "application/octet-stream" });
+    const headers = { "content-type": MIME[path.extname(file)] || "application/octet-stream" };
+    // Pages must pick up a new build; hashed assets may be cached.
+    if (path.extname(file) === ".html") headers["cache-control"] = "no-cache";
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
