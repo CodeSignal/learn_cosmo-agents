@@ -150,10 +150,34 @@ const STUB_PLAN = [
   "</proposed_plan>",
 ].join("\n");
 
+const STUB_MARKDOWN = [
+  "## Summary",
+  "Here is **bold**, *italic*, `inline code` and a [link](https://example.com).",
+  "",
+  "- one",
+  "- two",
+  "",
+  "1. first",
+  "2. second",
+  "",
+  "```python",
+  'def greet(name):',
+  '    return f"Hello, {name}! This line is long enough to show what word wrap does in a narrow code block."',
+  "```",
+  "",
+  "| a | b |",
+  "|---|---|",
+  "| 1 | 2 |",
+  "| 3 | 4 |",
+  "",
+  "> A quote.",
+].join("\n");
+
 /**
  * Codex scripts. RUN: <cmd> runs a command; ADD: <path> <text> creates a file; REPLACE: <path>
  * "<old line>" => "<new line>" edits one line (quotes keep the indentation exact); ASK asks a question (plan mode); PLANTEXT answers with a plan.
  * WAIT: <seconds> (any agent) holds the reply back, so a turn stays in progress for follow-ups and Stop.
+ * MD answers with Markdown: heading, emphasis, lists, a code block, a table and a quote.
  */
 function codexScript(input, user) {
   const exec = (code) => ({ kind: "custom", name: "exec", input: code });
@@ -183,6 +207,7 @@ function codexScript(input, user) {
     };
   }
   if (/\bPLANTEXT\b/.test(user)) return { kind: "text", text: STUB_PLAN };
+  if (/\bMD\b/.test(user)) return { kind: "text", text: STUB_MARKDOWN };
   return null;
 }
 
