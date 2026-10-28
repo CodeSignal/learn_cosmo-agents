@@ -70,4 +70,7 @@ setting, never as an error.
 
 ## 5. Ship
 
-Merge only with every check green. Note in the change what the parity walk found.
+Merge only with every check green. Note in the change what the parity walk found. The merge
+publishes a pre-release (README, "Releases"); after a staging session on it, promote it with
+`gh release edit vN --prerelease=false --latest`. An engine bump also needs new images, since the
+engines are installed there.

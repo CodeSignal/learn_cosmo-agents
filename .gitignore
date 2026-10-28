@@ -4,3 +4,5 @@ dist/
 *.log
 dist-agents/
 vendor/opencode/node_modules
+pack/
+release.tar.gz

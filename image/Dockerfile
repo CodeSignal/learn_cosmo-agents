@@ -1,15 +1,8 @@
-# Draft runtime image for the simulation. Locally it starts from Ubuntu; on the platform the
-# first stage's base becomes the platform's base image (which already has the session user).
+# Runtime image for the simulation. Locally it starts from Ubuntu; on the platform the final
+# stage's base becomes the platform's base image (which already has the session user).
 #
-#   docker build -f image/Dockerfile -t cosmo-agents:dev .
-
-FROM node:22-bookworm AS build
-WORKDIR /src
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY vite.config.js ./
-COPY client ./client
-RUN npm run build
+#   docker build -f image/Dockerfile -t cosmo-agents:dev .          the image
+#   docker build -f image/Dockerfile --target release -o out .      just out/release.tar.gz
 
 # Agent UIs: the vendored OpenCode workspace (UI kit, OpenCosmo) with our apps composed in as
 # packages, built with the Bun version upstream pins.
@@ -22,6 +15,28 @@ RUN bun install --filter "@opencode-ai/app" --filter "@cosmo/cosmodex" --filter 
 RUN cd packages/app && OPENCOSMO_BASE=/agents/opencosmo/ VITE_ENGINE_PATH=/engine/opencosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build
 RUN cd packages/cosmodex && COSMODEX_BASE=/agents/cosmodex/ VITE_ENGINE_PATH=/engine/cosmodex VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
 RUN cd packages/cosmo-code && COSMO_CODE_BASE=/agents/cosmo-code/ VITE_ENGINE_PATH=/engine/cosmo-code VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
+
+# The release tarball (scripts/pack-release.mjs): the shell, the bundled server and helpers, the UIs.
+FROM node:22-bookworm AS pack
+WORKDIR /src
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY engines/claude-host/package.json engines/claude-host/package-lock.json ./engines/claude-host/
+COPY vite.config.js LICENSE ./
+COPY client ./client
+RUN npm run build
+COPY server ./server
+COPY policy ./policy
+COPY root ./root
+COPY scripts ./scripts
+COPY engines/claude-host/host.mjs ./engines/claude-host/
+COPY --from=ui /work/packages/app/dist ./dist-agents/opencosmo
+COPY --from=ui /work/packages/cosmodex/dist ./dist-agents/cosmodex
+COPY --from=ui /work/packages/cosmo-code/dist ./dist-agents/cosmo-code
+RUN node scripts/pack-release.mjs
+
+FROM scratch AS release
+COPY --from=pack /src/release.tar.gz /
 
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -41,26 +56,12 @@ COPY policy/pins.json /tmp/pins.json
 RUN npm install -g --no-fund --no-audit $(node -e 'const p=require("/tmp/pins.json");console.log(Object.values(p.engines).map(e=>e.package+"@"+e.version).join(" "))') \
     && rm /tmp/pins.json
 
-# The simulation, root-owned so neither the session user nor the agentsim user can change it.
-COPY package.json /opt/agentsim/package.json
-COPY server /opt/agentsim/server
-COPY policy /opt/agentsim/policy
-COPY root /opt/agentsim/root
-COPY scripts /opt/agentsim/scripts
-# Cosmo Code's engine host and its pinned Agent SDK (the engine itself is the pinned claude above).
-COPY engines /opt/agentsim/engines
-RUN cd /opt/agentsim/engines/claude-host && npm ci --omit=optional --no-fund --no-audit
-COPY --from=build /src/dist /opt/agentsim/dist
-COPY --from=ui /work/packages/app/dist /opt/agentsim/dist-agents/opencosmo
-COPY --from=ui /work/packages/cosmodex/dist /opt/agentsim/dist-agents/cosmodex
-COPY --from=ui /work/packages/cosmo-code/dist /opt/agentsim/dist-agents/cosmo-code
-RUN mkdir -p /opt/agentsim/bin \
-    && mv /opt/agentsim/root/bin/* /opt/agentsim/bin/ && rmdir /opt/agentsim/root/bin \
-    && install -m 0440 -o root -g root /opt/agentsim/root/sudoers /etc/sudoers.d/agentsim \
-    && rm /opt/agentsim/root/sudoers \
-    && visudo -cf /etc/sudoers.d/agentsim \
-    && chown -R root:root /opt/agentsim && chmod -R go-w /opt/agentsim \
-    && chmod 0755 /opt/agentsim/bin/* /opt/agentsim/scripts/* \
-    && mkdir -p /var/lib/agentsim/home && chown agentsim:agentsim /var/lib/agentsim/home
+# The simulation from its release tarball, root-owned so neither the session user nor the agentsim
+# user can change it. Cosmo Code's engine host gets its pinned Agent SDK from npm, like the engines
+# (the engine itself is the pinned claude above).
+COPY --from=pack /src/release.tar.gz /tmp/release.tar.gz
+RUN mkdir -p /opt/agentsim && tar -xzf /tmp/release.tar.gz -C /opt/agentsim && rm /tmp/release.tar.gz \
+    && cd /opt/agentsim/engines/claude-host && npm ci --omit=optional --no-fund --no-audit \
+    && sh /opt/agentsim/install.sh
 
 WORKDIR /usercode/FILESYSTEM

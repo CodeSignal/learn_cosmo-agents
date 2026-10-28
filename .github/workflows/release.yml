@@ -1,0 +1,110 @@
+name: Build and release
+
+# Every push to main builds the release tarball inside the image build (so the image the checks run
+# against installs exactly what ships), runs the unit tests, boots the unpacked tarball, runs the
+# container lockdown checks and the UI smoke test, and only then publishes. A build from main is a
+# pre-release: staging gets it through the floating `prerelease` tag, production when someone
+# promotes it to latest (README, "Releases"). Pull requests run the same checks without publishing.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One release at a time, so two quick merges can't interleave their updates of the floating tag.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build the release tarball
+        run: docker build -f image/Dockerfile --target release -o out .
+
+      - name: Verify the tarball runs
+        run: node scripts/verify-release.mjs out/release.tar.gz
+
+      # Builds the full image (reusing the stages above) and attacks each lockdown layer.
+      - name: Container checks
+        run: sh test/container/run.sh
+
+      - name: UI smoke test
+        run: |
+          SANDBOX=1 BUILD=0 sh scripts/dev-container.sh
+          for i in $(seq 60); do curl -sf http://localhost:3010/api/health >/dev/null && break; sleep 1; done
+          npm run test:ui -- --out ui-screenshots
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: ui-screenshots
+          if-no-files-found: ignore
+
+      - name: Keep the tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: out/release.tar.gz
+
+      # A pre-release never becomes /latest by itself: production keeps its build until this one
+      # is promoted.
+      - name: Publish the pre-release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ github.run_number }}
+        run: |
+          gh release create "$TAG" out/release.tar.gz --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "Release ${{ github.run_number }}" \
+            --notes "Build from main ($GITHUB_SHA). Staging gets it through the floating \`prerelease\` tag; promote it to production by marking it as the latest release."
+
+      # The floating `prerelease` release always carries the newest build, so staging downloads it
+      # from one fixed URL. Skipped if a newer release was cut while this run waited in the queue.
+      - name: Move the floating prerelease tag
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ github.run_number }}
+        run: |
+          set -eu
+          newest=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq '[.[] | select(.draft == false and .tag_name != "prerelease")][0].tag_name // empty')
+          if [ "$newest" != "$TAG" ]; then
+            echo "Skipping: $TAG is not the newest release (${newest:-none})."
+            exit 0
+          fi
+          git tag -f prerelease "$GITHUB_SHA"
+          git push origin refs/tags/prerelease --force
+          notes="Floating alias for the newest build: currently \`$TAG\` (\`$GITHUB_SHA\`).
+
+          Production: https://github.com/$GITHUB_REPOSITORY/releases/latest/download/release.tar.gz
+          Staging:    https://github.com/$GITHUB_REPOSITORY/releases/download/prerelease/release.tar.gz"
+          if gh release view prerelease >/dev/null 2>&1; then
+            gh release edit prerelease --prerelease --target "$GITHUB_SHA" --title "Newest build (staging)" --notes "$notes"
+            gh release upload prerelease out/release.tar.gz --clobber
+          else
+            gh release create prerelease out/release.tar.gz --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "Newest build (staging)" --notes "$notes"
+          fi

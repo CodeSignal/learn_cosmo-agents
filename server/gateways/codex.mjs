@@ -3,13 +3,12 @@
 import path from "node:path";
 import { createJsonRpcGateway } from "./jsonrpc.mjs";
 import { createTurnRecorder, inputText } from "../turns.mjs";
-import fs from "node:fs";
 import { METHODS, DECISIONS, USER_INPUT, CODEX_VERSION } from "./codex-methods.mjs";
+import STABLE_PARAMS from "./codex-params.json" with { type: "json" };
 
 // The parameters each method's stable schema declares (scripts/gen-codex-params.mjs), plus the
 // experimental ones Cosmodex needs. Anything else is refused: the experimental API also carries
 // permission profiles, extra writable roots, injected history and context, which a task controls.
-const STABLE_PARAMS = JSON.parse(fs.readFileSync(new URL("./codex-params.json", import.meta.url), "utf8"));
 const EXPERIMENTAL_PARAMS = {
   "turn/start": ["collaborationMode"],
   "thread/fork": ["beforeTurnId", "deferGoalContinuation"],

@@ -8,10 +8,13 @@ Guidance for contributors and AI agents working in this repository.
   `schema.mjs` (task config validation), `render.mjs` (engine policy files, pure),
   `toml.mjs`.
 - `root/`: code that runs as root. `apply-policy.mjs` (one-shot), `supervisor.mjs`,
-  `procnet.mjs` + `find-owners.mjs` (who holds a port), `bin/` sudo entry points, `sudoers`.
+  `procnet.mjs` + `find-owners.mjs` (who holds a port), `bin/` sudo entry points, `sudoers`,
+  `install.sh` (installs an unpacked release as root).
 - `server/`: the :3000 server (`index.mjs`), engine gateways (`gateway.mjs`), event log.
 - `client/`: the shell page (design system, Vite). `client/design-system` is a submodule.
-- `image/Dockerfile`: the runtime image draft. `scripts/run_solution.sh`: output for evaluation.
+- `image/Dockerfile`: the runtime image, installing the release tarball it builds.
+  `scripts/pack-release.mjs` + `verify-release.mjs`: the tarball and its boot check;
+  `.github/workflows/release.yml` publishes it. `scripts/run_solution.sh`: output for evaluation.
 - `test/`: unit tests (`*.test.mjs`), `stub-gateway.mjs` (a fake LLM proxy), `container/run.sh`.
 
 ## Rules
@@ -34,6 +37,9 @@ Guidance for contributors and AI agents working in this repository.
 - **Public repository.** Generic platform contract only: no internal links, ids, hostnames or
   people; no vendor screenshots.
 - Dependencies stay minimal (Node built-ins on the server; Vite for the client build).
+- **Entry points are bundled for release.** Import JSON (`with { type: "json" }`) rather than
+  reading it beside the module, and resolve other files from the install root as the supervisor
+  does; `npm run verify:release` catches what a bundle can't find.
 
 ## Checks
 

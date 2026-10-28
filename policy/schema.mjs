@@ -1,8 +1,8 @@
 // Validation for the task's agent-sim.json. Every problem is reported at once, so a task
 // author fixes a config in one round trip. A task can only narrow what pins.json allows.
-import fs from "node:fs";
+import PINS from "./pins.json" with { type: "json" };
 
-export const PINS = JSON.parse(fs.readFileSync(new URL("./pins.json", import.meta.url), "utf8"));
+export { PINS };
 
 const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models", "permissions"]);
 const TERMINAL = ["off", "sandboxed"];

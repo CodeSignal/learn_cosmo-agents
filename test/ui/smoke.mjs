@@ -16,7 +16,8 @@ const arg = (name, fallback) => {
   return at > 0 ? process.argv[at + 1] : fallback;
 };
 const BASE = arg("base", "http://localhost:3010").replace(/\/+$/, "");
-const OUT = arg("out", fs.mkdtempSync(path.join(os.tmpdir(), "cosmo-ui-")));
+const OUT = arg("out") ?? fs.mkdtempSync(path.join(os.tmpdir(), "cosmo-ui-"));
+fs.mkdirSync(OUT, { recursive: true });
 const CHROME =
   process.env.CHROME ??
   ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find((p) => fs.existsSync(p));
@@ -33,7 +34,9 @@ function report(id, desc, ok, detail = "") {
 async function launch() {
   if (!CHROME) throw new Error("no Chrome found; set CHROME");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "cosmo-ui-profile-"));
-  const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "about:blank"], { stdio: "ignore" });
+  // CI runners don't give Chrome the user namespaces its own sandbox needs; the pages are ours.
+  const flags = process.env.CI ? ["--no-sandbox"] : [];
+  const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...flags, "about:blank"], { stdio: "ignore" });
   const portFile = path.join(profile, "DevToolsActivePort");
   for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(100);
   const port = fs.readFileSync(portFile, "utf8").split("\n")[0];

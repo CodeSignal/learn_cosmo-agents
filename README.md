@@ -9,8 +9,8 @@ Each UI follows its original app's structure and behaviour closely, so a learner
 original needs no time to get used to it, with the platform's design system and the user's light
 or dark theme.
 
-> Status: all three agents work end to end on their engines. Remaining: release packaging and
-> the platform's task template.
+> Status: all three agents work end to end on their engines, and CI publishes releases.
+> Remaining: the platform's task template.
 
 ## How it fits together
 
@@ -128,11 +128,39 @@ npm run test:container # builds the image and runs the lockdown checks in a cont
 sh scripts/build-ui.sh # builds the three agent UIs into dist-agents/ (Bun in Docker)
 sh scripts/dev-container.sh   # a local container with a stand-in LLM proxy, on :3010
 npm run test:ui        # drives each agent UI in headless Chrome against that container
+npm run build && npm run pack   # release.tar.gz from dist/ and dist-agents/
+npm run verify:release          # unpacks release.tar.gz and boots it
 ```
 
 `PROVISIONER_BUNDLE=<path to a transcript extractor bundle> npm run test:container` also checks
 that transcripts of all three engines are extracted. [`docs/runbook.md`](docs/runbook.md) covers
 engine version bumps and re-checking the UIs against the originals.
+
+## Releases
+
+Every push to `main` runs [the release workflow](.github/workflows/release.yml): unit tests, the
+release tarball (built inside the image build, so the checked image installs exactly what
+ships), a boot of the unpacked tarball, the container checks and the UI smoke test. Only then
+does it publish `vN` as a pre-release and move the floating `prerelease` tag to it. Pull requests
+run the same checks without publishing.
+
+`release.tar.gz` unpacks as `/opt/agentsim`: one minified file per entry point (server, root
+helpers, engine host, summary), the built shell and agent UIs, the sudo entry points, the sudoers
+entry and `install.sh`. It carries no `node_modules`. The engine host's dependencies (the Agent SDK
+among them) are installed from its shipped lockfile with `npm ci`, as the engines are.
+
+The app runs root-owned from the image, so a session never downloads it. The channel is picked
+when the image is built:
+
+| Channel | Release |
+|---|---|
+| staging | `https://github.com/CodeSignal/learn_cosmo-agents/releases/download/prerelease/release.tar.gz` |
+| production | `https://github.com/CodeSignal/learn_cosmo-agents/releases/latest/download/release.tar.gz` |
+
+An image installs a release the way [`image/Dockerfile`](image/Dockerfile) does: the engines at
+the versions in the release's `policy/pins.json`, then unpack into `/opt/agentsim`,
+`npm ci --omit=optional` in `engines/claude-host`, and `sh /opt/agentsim/install.sh` as root.
+Promote a build to production with `gh release edit vN --prerelease=false --latest`.
 
 ## Licence
 
