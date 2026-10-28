@@ -26,6 +26,7 @@ export const METHODS = {
   "session/undoRewind": "allow",
   "session/context": "allow",
   "session/close": "allow",
+  "session/subagent": "allow",
   "files/search": "allow",
   "files/tree": "allow",
   "files/read": "allow",
@@ -53,6 +54,7 @@ const PARAMS = {
   "session/close": ["sessionId"],
   "session/rewind": ["sessionId", "userMessageId"],
   "session/undoRewind": ["sessionId"],
+  "session/subagent": ["sessionId", "agentId"],
   "files/search": ["query", "limit"],
   "files/tree": [],
   "files/read": ["path"],
@@ -62,12 +64,14 @@ const PARAMS = {
   "terminal/close": ["id"],
 };
 const REQUIRED = {
-  sessionId: ["session/read", "session/interrupt", "session/configure", "session/rename", "session/fork", "session/archive", "session/rewindFiles", "session/rewind", "session/undoRewind", "session/context", "session/close"],
+  sessionId: ["session/read", "session/interrupt", "session/configure", "session/rename", "session/fork", "session/archive", "session/rewindFiles", "session/rewind", "session/undoRewind", "session/context", "session/close", "session/subagent"],
   id: ["terminal/write", "terminal/resize", "terminal/close"],
 };
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A subagent's id (the engine's own, e.g. "af6f0ecd0c89ad2e5"); it names its transcript file.
+const AGENT_ID = /^[a-z0-9]{8,40}$/;
 const MAX_TEXT = 200_000;
 const MAX_INSTRUCTIONS = 4000;
 
@@ -88,6 +92,7 @@ export function checkParams(method, params = {}, ctx) {
   if (p.userMessageId !== undefined && !ID.test(String(p.userMessageId))) return { reason: "this message" };
   if ((method === "session/rewindFiles" || method === "session/rewind") && p.userMessageId === undefined) return { reason: "this message" };
   if (REQUIRED.id.includes(method) && !ID.test(String(p.id ?? ""))) return { reason: "this terminal" };
+  if (method === "session/subagent" && !AGENT_ID.test(String(p.agentId ?? ""))) return { reason: "this subagent" };
   if (method === "files/read" && !relativePath(p.path)) return { reason: "files outside the task's workspace" };
   if (p.data !== undefined && (typeof p.data !== "string" || p.data.length > 64 * 1024 || !/^[A-Za-z0-9+/=]*$/.test(p.data))) return { reason: "this input" };
   for (const size of ["cols", "rows"]) if (p[size] !== undefined && !(Number.isInteger(p[size]) && p[size] >= 2 && p[size] <= 1000)) return { reason: "the terminal size" };

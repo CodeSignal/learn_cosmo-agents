@@ -60,6 +60,9 @@ test("only the parameters a method declares pass; sessions and messages are ids"
 });
 
 test("rewind, files and the terminal: ids, relative paths and sizes only", () => {
+  assert.equal(reason("session/subagent", { sessionId: SID, agentId: "af6f0ecd0c89ad2e5" }), undefined);
+  for (const agentId of ["../../x", "AF6F0ECD", "a", undefined]) assert.match(reason("session/subagent", { sessionId: SID, agentId }), /subagent/);
+  assert.match(reason("session/subagent", { agentId: "af6f0ecd0c89ad2e5" }), /session/);
   assert.equal(reason("session/rewind", { sessionId: SID, userMessageId: SID }), undefined);
   assert.match(reason("session/rewind", { sessionId: SID }), /message/);
   assert.equal(reason("files/read", { path: "src/greet.js" }), undefined);

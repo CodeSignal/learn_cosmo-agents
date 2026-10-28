@@ -7,7 +7,7 @@
 // Client → host:  initialize · session/list · session/read · session/send · session/interrupt ·
 //                 session/configure · session/rename · session/fork · session/archive ·
 //                 session/rewindFiles · session/rewind · session/undoRewind · session/context ·
-//                 session/close · files/search · files/tree · files/read ·
+//                 session/close · session/subagent · files/search · files/tree · files/read ·
 //                 terminal/open · terminal/write · terminal/resize · terminal/close
 // Host → client:  session/message {sessionId, message}   every SDK message, as it arrives
 //                 session/state {sessionId, state}       "running" | "idle"
@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
-import { query, listSessions, getSessionMessages, getSessionInfo, renameSession, forkSession, tagSession, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { query, listSessions, getSessionMessages, getSubagentMessages, getSessionInfo, renameSession, forkSession, tagSession, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 const PORT = Number(process.env.COSMO_CODE_PORT ?? 4600);
@@ -354,6 +354,11 @@ const handlers = {
     const rewound = rewinds.get(sessionId);
     if (rewound) messages = messages.slice(0, messages.findIndex((m) => m.uuid === rewound.at) + 1);
     return { messages, info: await getSessionInfo(sessionId, { dir: WORKSPACE }), ...(rewound ? { rewound: { userMessageId: rewound.userMessageId } } : {}) };
+  },
+  /** A subagent's conversation (its own transcript, beside the session's). */
+  async "session/subagent"({ sessionId, agentId }) {
+    if (!/^[a-z0-9]{8,40}$/.test(String(agentId))) throw rpcError(-32602, "No such subagent");
+    return { messages: await getSubagentMessages(sessionId, agentId, { dir: WORKSPACE }) };
   },
   /** Rewind to before a message: its files go back, and it and everything after leave the conversation. */
   async "session/rewind"({ sessionId, userMessageId }) {

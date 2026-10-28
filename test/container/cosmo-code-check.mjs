@@ -172,5 +172,18 @@ report("C16", "sessions get Claude Code's system prompt, with the candidate's in
   main.length > 0 && main.every((r) => r.systemChars > 2000 && r.systemHead.includes("You are an interactive agent")) && instructed.length > 0 && tooLong.status === 403,
   JSON.stringify([main.length, instructed.length, main.map((r) => r.systemChars), tooLong.status]));
 
+// Subagents: the engine reports the task live, and its conversation reads back by the id the
+// Agent call's result names (only an engine-shaped id passes).
+const asid = await turn({ text: 'CALL: Agent {"description":"Survey test files","prompt":"List the test files.","subagent_type":"general-purpose"}' });
+const taskStarted = await ev.waitFor((m) => m.params?.sessionId === asid && m.params?.message?.subtype === "task_started", 10000);
+const ended = await ev.waitFor((m) => m.params?.sessionId === asid && m.params?.message?.subtype === "task_notification", 30000);
+const agentId = taskStarted?.params.message.task_id;
+const sub = agentId ? await rpc("session/subagent", { sessionId: asid, agentId }) : null;
+const subPrompt = sub?.body.result?.messages?.[0]?.message?.content;
+const badSub = await rpc("session/subagent", { sessionId: asid, agentId: "../../../etc/passwd" });
+report("C17", "a subagent's task is reported live, and its own conversation reads back by its id",
+  taskStarted?.params.message.task_type === "local_agent" && !!ended && (typeof subPrompt === "string" ? subPrompt : JSON.stringify(subPrompt)).includes("List the test files.") && badSub.status === 403,
+  JSON.stringify([!!taskStarted, !!ended, agentId, sub?.body.result?.messages?.length, badSub.status]));
+
 ev.close();
 process.exit(failed ? 1 : 0);
