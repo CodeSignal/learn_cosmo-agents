@@ -2,6 +2,7 @@
 // engine host and the pinned Claude Code engine, and prints one "PASS|FAIL <id> <description>"
 // line per check.
 const G = "http://localhost:3000/engine/cosmo-code";
+const started = new Date().toISOString();
 let failed = 0;
 
 function report(id, desc, ok, detail = "") {
@@ -156,6 +157,20 @@ const after = prompts((await rpc("session/read", { sessionId: rsid })).body.resu
 report("C15", "rewind removes a prompt and what followed (not the first), and Undo rewind brings it back",
   before.length === 2 && firstRefused.body.error && !firstRefused.body.result && rewound.body.result?.text === "second prompt" && prompts(during?.messages ?? []).length === 1 && during?.rewound?.userMessageId === before[1].uuid && undone.status === 200 && after.length === 2,
   JSON.stringify([before.length, firstRefused.body, rewound.body, prompts(during?.messages ?? []).length, undone.status, after.length]).slice(0, 300));
+
+// Sessions run on Claude Code's own system prompt (thousands of characters; without it the SDK
+// sends only a one-line identity), with the candidate's instructions (Settings) appended for a
+// new session. The stub logs each system prompt's start, end and length.
+const { readFileSync } = await import("node:fs");
+const marker = `INSTRUCTIONS-${Date.now()}`;
+await turn({ text: "instructions check", instructions: `Answer briefly. ${marker}` });
+// The engine's main-loop requests (those offering tools) in this run: every one on Claude Code's prompt.
+const main = readFileSync(process.env.STUB_LOG ?? "/tmp/stub.jsonl", "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.at >= started && r.ua?.includes("agent-sdk") && r.tools?.length && r.systemHead);
+const instructed = main.filter((r) => r.systemTail.endsWith(marker));
+const tooLong = await rpc("session/send", { text: "hi", instructions: "x".repeat(4001) });
+report("C16", "sessions get Claude Code's system prompt, with the candidate's instructions appended (short text only)",
+  main.length > 0 && main.every((r) => r.systemChars > 2000 && r.systemHead.includes("You are an interactive agent")) && instructed.length > 0 && tooLong.status === 403,
+  JSON.stringify([main.length, instructed.length, main.map((r) => r.systemChars), tooLong.status]));
 
 ev.close();
 process.exit(failed ? 1 : 0);

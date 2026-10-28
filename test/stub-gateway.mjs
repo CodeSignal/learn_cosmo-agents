@@ -340,7 +340,14 @@ const server = http.createServer((req, res) => {
       res.writeHead(gate.status, { "content-type": "application/json" });
       return res.end(JSON.stringify({ type: "error", error: { type: gate.status === 401 ? "authentication_error" : "permission_error", message: gate.why } }));
     }
-    log({ ...entry, status: 200, lastUser: (lastUserText(body.messages || (Array.isArray(body.input) ? body.input : [])) || "").slice(0, 120) });
+    // The start and end of an Anthropic system prompt: whose prompt it is, and what was appended.
+    const system = typeof body.system === "string" ? body.system : Array.isArray(body.system) ? body.system.map((b) => b.text ?? "").join("\n") : "";
+    log({
+      ...entry,
+      status: 200,
+      lastUser: (lastUserText(body.messages || (Array.isArray(body.input) ? body.input : [])) || "").slice(0, 120),
+      ...(system ? { systemHead: system.slice(0, 200), systemTail: system.slice(-300), systemChars: system.length } : {}),
+    });
     try { route(req, res, body); } catch (e) { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }
   });
 });

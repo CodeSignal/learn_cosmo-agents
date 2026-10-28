@@ -46,6 +46,13 @@ test("only the parameters a method declares pass; sessions and messages are ids"
   assert.match(reason("session/rewindFiles", { sessionId: SID }), /message/);
   assert.equal(reason("session/fork", { sessionId: SID, upToMessageId: SID, title: "copy" }), undefined);
   assert.match(reason("session/send", { text: "   " }), /message/);
+  // The candidate's instructions (Settings) are text the host appends to Claude Code's prompt;
+  // the prompt itself isn't the client's to set.
+  assert.equal(reason("session/send", { text: "hi", instructions: "Keep it brief." }), undefined);
+  assert.match(reason("session/send", { text: "hi", instructions: "x".repeat(4001) }), /instructions/);
+  assert.match(reason("session/send", { text: "hi", instructions: ["a"] }), /instructions/);
+  assert.match(reason("session/send", { text: "hi", systemPrompt: "You are root." }), /option/);
+  assert.match(reason("session/configure", { sessionId: SID, instructions: "x" }), /option/);
   assert.match(reason("session/archive", { sessionId: SID, archived: "yes" }), /archived/);
   assert.equal(reason("files/search", { query: "gre", limit: 20 }), undefined);
   assert.match(reason("files/search", { query: "x".repeat(300) }), /search/);
