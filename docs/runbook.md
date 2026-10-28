@@ -35,11 +35,14 @@ a model a task names makes that task's config invalid; `validateTaskConfig` repo
 npm test
 sh scripts/build-ui.sh
 PROVISIONER_BUNDLE=<extractor bundle> npm run test:container
+sh scripts/dev-container.sh && npm run test:ui
 ```
 
 The container checks cover the lockdown (red-team items `R*`), setup guarantees (`S*`), each
 agent's flows (`O*` OpenCosmo, `X*` Cosmodex, `C*` Cosmo Code, `P*` permissions), the turn record
-and evaluation output (`T*`) and transcript extraction (`E*`). All must pass.
+and evaluation output (`T*`) and transcript extraction (`E*`). All must pass. `test:ui` (needs a
+local Chrome) opens each agent in a headless browser, sends a prompt that runs a command,
+approves it and waits for the reply (`U*`); it saves a screenshot per agent.
 
 Then run once against the real model proxy with a key scoped to the task's models: start a
 session in each agent, send one prompt that runs a command, approve it, and read

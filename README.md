@@ -127,6 +127,7 @@ npm test               # unit tests (no Docker)
 npm run test:container # builds the image and runs the lockdown checks in a container
 sh scripts/build-ui.sh # builds the three agent UIs into dist-agents/ (Bun in Docker)
 sh scripts/dev-container.sh   # a local container with a stand-in LLM proxy, on :3010
+npm run test:ui        # drives each agent UI in headless Chrome against that container
 ```
 
 `PROVISIONER_BUNDLE=<path to a transcript extractor bundle> npm run test:container` also checks

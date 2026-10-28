@@ -16,7 +16,8 @@
     "build": "vite build",
     "test": "node --test \"test/*.test.mjs\"",
     "test:container": "sh test/container/run.sh",
-    "preview": "vite build && PORT=3005 IS_PRODUCTION=true POLICY_PATH=dev/agent-sim.json node server/index.mjs"
+    "preview": "vite build && PORT=3005 IS_PRODUCTION=true POLICY_PATH=dev/agent-sim.json node server/index.mjs",
+    "test:ui": "node test/ui/smoke.mjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
