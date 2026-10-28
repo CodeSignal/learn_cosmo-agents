@@ -3,7 +3,7 @@
 // engine's open permission requests.
 import { createStore, produce } from "solid-js/store"
 import { call, EngineError, listen, respond, type EngineMessage } from "./engine"
-import { prefs } from "./prefs"
+import { prefs, setUnread } from "./prefs"
 import { kindOf, statusOf, type BackgroundTask } from "./tasks"
 
 export const WORKSPACE = import.meta.env.VITE_WORKSPACE ?? "/usercode/FILESYSTEM"
@@ -22,6 +22,7 @@ export type Session = {
   id: string
   title: string
   lastModified: number
+  created: number
   archived: boolean
   state: "idle" | "running"
   loaded: boolean
@@ -106,7 +107,16 @@ function report(error: unknown) {
 }
 
 export const activeSession = () => (state.activeId ? state.sessions[state.activeId] : undefined)
-export const sessionOrder = () =>
+/** The sidebar's order (Group and sort → Sort by). */
+export const sessionOrder = () => {
+  const dir = prefs.sortDir === "asc" ? 1 : -1
+  const key = (s: Session) => (prefs.sortBy === "created" ? s.created : s.lastModified)
+  return Object.values(state.sessions)
+    .filter((s) => !s.archived)
+    .sort((a, b) => dir * (prefs.sortBy === "name" ? a.title.localeCompare(b.title) : key(a) - key(b)))
+}
+/** Most recently used first (the command palette's Recents). */
+export const recentSessions = () =>
   Object.values(state.sessions)
     .filter((s) => !s.archived)
     .sort((a, b) => b.lastModified - a.lastModified)
@@ -127,6 +137,7 @@ const blankSession = (id: string, title: string): Session => ({
   id,
   title,
   lastModified: Date.now(),
+  created: Date.now(),
   archived: false,
   state: "idle",
   loaded: false,
@@ -161,6 +172,8 @@ function onMessage(msg: EngineMessage) {
       if (!state.sessions[p.sessionId]) return
       setState("sessions", p.sessionId, "state", p.state)
       if (p.state === "idle") void afterTurn(p.sessionId)
+      // A session that finishes while you're elsewhere shows as unread.
+      if (p.state === "idle" && p.sessionId !== state.activeId) setUnread(p.sessionId, true)
       return
     case "session/permissionCancelled":
       return setState("requests", produce((r) => delete r[String(p.id)]))
@@ -329,7 +342,7 @@ async function loadInfo() {
   }
 }
 
-type SessionInfo = { sessionId: string; summary?: string; customTitle?: string; firstPrompt?: string; lastModified: number; archived?: boolean; state?: "idle" | "running" }
+type SessionInfo = { sessionId: string; summary?: string; customTitle?: string; firstPrompt?: string; lastModified: number; createdAt?: number; archived?: boolean; state?: "idle" | "running" }
 
 export async function refreshSessions() {
   try {
@@ -340,7 +353,7 @@ export async function refreshSessions() {
         for (const info of sessions) {
           const title = info.customTitle || info.summary || info.firstPrompt || "New session"
           const s = all[info.sessionId] ?? blankSession(info.sessionId, title)
-          all[info.sessionId] = { ...s, title, lastModified: info.lastModified, archived: !!info.archived, state: info.state ?? s.state }
+          all[info.sessionId] = { ...s, title, lastModified: info.lastModified, created: info.createdAt ?? s.created, archived: !!info.archived, state: info.state ?? s.state }
         }
       }),
     )
@@ -351,6 +364,7 @@ export async function refreshSessions() {
 
 export async function openSession(id: string) {
   setState({ activeId: id, plan: null, pane: state.pane === "plan" ? null : state.pane, subagent: state.activeId === id ? state.subagent : null })
+  setUnread(id, false)
   const s = state.sessions[id]
   if (!s || s.loaded) return
   try {

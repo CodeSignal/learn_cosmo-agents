@@ -25,7 +25,24 @@ const DEFAULTS = {
   autoOpen: true,
   /** A session's own view (its Transcript view menu), by session id. */
   sessionViews: {} as Record<string, TranscriptView>,
+  /** The sidebar (Group and sort, S11): order, what rows show, and the candidate's own sections. */
+  sortBy: "updated" as SortBy,
+  sortDir: "desc" as "desc" | "asc",
+  showMetadata: false,
+  showEmptyGroups: false,
+  sections: [] as { id: string; name: string }[],
+  /** The section a session was moved to, by session id. */
+  sectionOf: {} as Record<string, string>,
+  /** Pinned sessions (on top), and sessions marked unread. */
+  pinned: [] as string[],
+  unread: [] as string[],
+  /** Sidebar groups and session rail cards the candidate collapsed. */
+  collapsed: {} as Record<string, true>,
 }
+
+export type SortBy = "updated" | "created" | "name"
+/** The sidebar settings Reset to defaults puts back. */
+export const SIDEBAR_DEFAULTS = { sortBy: DEFAULTS.sortBy, sortDir: DEFAULTS.sortDir, showMetadata: DEFAULTS.showMetadata, showEmptyGroups: DEFAULTS.showEmptyGroups }
 
 export type Prefs = typeof DEFAULTS
 export type PrefKey = keyof Prefs
@@ -56,6 +73,34 @@ export const viewOf = (sessionId: string | null | undefined): TranscriptView =>
 
 export function setSessionView(sessionId: string, view: TranscriptView) {
   setPref("sessionViews", { ...prefs.sessionViews, [sessionId]: view })
+}
+
+const toggleIn = (list: string[], id: string, on: boolean) => (on ? (list.includes(id) ? list : [...list, id]) : list.filter((x) => x !== id))
+export const setPinned = (id: string, on: boolean) => setPref("pinned", toggleIn(prefs.pinned, id, on))
+export const setUnread = (id: string, on: boolean) => {
+  if (prefs.unread.includes(id) !== on) setPref("unread", toggleIn(prefs.unread, id, on))
+}
+export const toggleCollapsed = (key: string) => {
+  const { [key]: was, ...rest } = prefs.collapsed
+  setPref("collapsed", was ? rest : { ...rest, [key]: true })
+}
+
+/** A new section (named "New section" until renamed); with a session, that session moves into it. */
+export function addSection(sessionId?: string) {
+  const id = Math.random().toString(36).slice(2, 10)
+  setPref("sections", [...prefs.sections, { id, name: "New section" }])
+  if (sessionId) moveToSection(sessionId, id)
+  return id
+}
+export const renameSection = (id: string, name: string) =>
+  setPref("sections", prefs.sections.map((s) => (s.id === id ? { ...s, name: name.trim() || s.name } : s)))
+export function deleteSection(id: string) {
+  setPref("sections", prefs.sections.filter((s) => s.id !== id))
+  setPref("sectionOf", Object.fromEntries(Object.entries(prefs.sectionOf).filter(([, sec]) => sec !== id)))
+}
+export function moveToSection(sessionId: string, sectionId: string | null) {
+  const { [sessionId]: _, ...rest } = prefs.sectionOf
+  setPref("sectionOf", sectionId ? { ...rest, [sessionId]: sectionId } : rest)
 }
 
 const VIEWS: TranscriptView[] = ["normal", "thinking", "verbose"]

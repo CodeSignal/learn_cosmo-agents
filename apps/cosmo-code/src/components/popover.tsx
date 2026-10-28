@@ -1,6 +1,7 @@
 // A minimal anchored popover/menu: opens below (or above) its trigger, closes on outside click
 // and Escape. Menus are lists of items with optional subtitle, shortcut, check, lock and submenu
-// (opens on hover, click or →; ← and Escape close it).
+// (opens on hover, click or →; ← and Escape close it). While a menu is open, ↑/↓ move between its
+// items and an item's letter or digit (its shortcut) picks it.
 import { createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { Icon } from "../icons"
 
@@ -18,7 +19,23 @@ export function Popover(props: {
     if (open() && !root.contains(e.target as Node)) close()
   }
   const onKey = (e: KeyboardEvent) => {
-    if (open() && e.key === "Escape") close()
+    if (!open()) return
+    if (e.key === "Escape") return close()
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    const typing = e.target instanceof HTMLElement && e.target.matches("input, textarea, [contenteditable]")
+    // The innermost open menu (a submenu over its parent).
+    const menus = root.querySelectorAll<HTMLElement>("[role=menu]")
+    const menu = menus[menus.length - 1]
+    if (!menu || (typing && !menu.contains(e.target as Node))) return
+    const items = [...menu.querySelectorAll<HTMLButtonElement>(":scope > .cc-menu > li > .cc-menu-item:not(:disabled)")]
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault()
+      const at = items.indexOf(document.activeElement as HTMLButtonElement)
+      items[(at + (e.key === "ArrowDown" ? 1 : items.length - (at < 0 ? 0 : 1))) % items.length]?.focus()
+    } else if (e.key.length === 1) {
+      const item = items.find((b) => b.dataset.key === e.key.toLowerCase())
+      if (item) (e.preventDefault(), item.click())
+    }
   }
   document.addEventListener("mousedown", onDoc)
   document.addEventListener("keydown", onKey)
@@ -51,8 +68,9 @@ export type MenuItem =
       subtitle?: string
       shortcut?: string
       checked?: boolean
-      /** A check item (role menuitemcheckbox) even while unchecked. */
+      /** A check item (role menuitemcheckbox) even while unchecked; or one of a choice (menuitemradio). */
       checkable?: boolean
+      radio?: boolean
       disabled?: boolean
       submenu?: MenuItem[]
       locked?: string
@@ -74,9 +92,10 @@ export function MenuList(props: { items: MenuItem[]; close: () => void }) {
             <li>
               <button
                 class="cc-menu-item"
-                role={item.checkable || item.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
+                role={item.radio ? "menuitemradio" : item.checkable || item.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
                 aria-checked={item.checkable || item.checked !== undefined ? !!item.checked : undefined}
-                aria-keyshortcuts={item.shortcut?.includes("+") ? item.shortcut.replace("Ctrl", "Control") : undefined}
+                aria-keyshortcuts={item.shortcut?.includes("+") ? item.shortcut.replace("Ctrl", "Control") : item.shortcut?.toLowerCase()}
+                data-key={item.shortcut?.length === 1 ? item.shortcut.toLowerCase() : undefined}
                 disabled={item.disabled || !!item.locked}
                 data-locked={item.locked ? "" : undefined}
                 onClick={() => {

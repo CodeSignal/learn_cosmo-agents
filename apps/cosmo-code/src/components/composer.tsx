@@ -439,11 +439,18 @@ export function Composer() {
             />
           )}
         </Popover>
+        <div class="cc-prompt-wrap">
+        {/* After a lone "/", a hint where the command's name goes. */}
+        <Show when={text() === "/"}>
+          <div class="cc-prompt-hint" aria-hidden="true">
+            <span class="cc-hidden-text">/</span>Type to filter
+          </div>
+        </Show>
         <textarea
           ref={input}
           class="cc-prompt"
           aria-label="Prompt"
-          aria-description={placeholder()}
+          aria-description={text() === "/" ? "Type to filter" : placeholder()}
           rows={1}
           placeholder={trigger()?.kind === "slash" ? "" : placeholder()}
           value={text()}
@@ -466,6 +473,7 @@ export function Composer() {
             submit((e.ctrlKey || e.metaKey) && working())
           }}
         />
+        </div>
         <Show
           when={working() && !text().trim()}
           fallback={

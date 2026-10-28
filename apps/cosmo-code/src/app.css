@@ -2004,3 +2004,77 @@ html[data-motion="reduced"] *::after {
   justify-content: flex-end;
   padding: 6px 12px 0;
 }
+
+/* Sidebar groups (S11), unread rows and the rail's Outputs and Changes cards (S31) */
+.cc-side-groups {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.cc-group-head .cc-row-more {
+  opacity: 0;
+}
+.cc-group-head:hover .cc-row-more,
+.cc-group-head:focus-within .cc-row-more,
+.cc-row-more[aria-expanded="true"] {
+  opacity: 1;
+}
+.cc-group-head .cc-rename {
+  flex: 1;
+}
+.cc-session-row[data-unread] .cc-session-title {
+  font-weight: 600;
+}
+.cc-session-row[data-unread]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--v2-text-text-accent);
+  transform: translateY(-50%);
+}
+.cc-session-meta {
+  flex: none;
+  font-size: 11px;
+}
+.cc-card-file {
+  width: 100%;
+  border-radius: 6px;
+  text-align: left;
+}
+.cc-card-file:hover,
+.cc-changes-open:hover {
+  background: var(--v2-overlay-simple-overlay-hover);
+}
+.cc-changes-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+/* "Type to filter" after a lone "/" in the prompt */
+.cc-prompt-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.cc-prompt-hint {
+  position: absolute;
+  inset: 0;
+  padding: 5px 2px;
+  font-size: 15px;
+  line-height: 20px;
+  white-space: pre;
+  color: var(--v2-text-text-muted);
+  pointer-events: none;
+}
+.cc-hidden-text {
+  visibility: hidden;
+}

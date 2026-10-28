@@ -4,7 +4,7 @@
 // prompt and choosing New session starts a session with it.
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { Icon, type IconName } from "../icons"
-import { closePalette, newSession, openPalette, openSession, openSettings, send, sessionOrder, state, togglePane, toggleShortcuts, toggleSidebar, type SettingsPage } from "../store"
+import { closePalette, newSession, openPalette, openSession, openSettings, send, recentSessions, state, togglePane, toggleShortcuts, toggleSidebar, type SettingsPage } from "../store"
 
 const LOCKED = "Not available in this task"
 
@@ -92,7 +92,7 @@ function Dialog(props: { mode: "recents" | "actions" }) {
       { title: "Quick actions", entries: [start] },
       {
         title: "Recents",
-        entries: sessionOrder()
+        entries: recentSessions()
           .filter((s) => !q || s.title.toLowerCase().includes(q))
           .slice(0, 8)
           .map((s): Entry => ({ key: s.id, icon: "code", label: s.title, hint: when(s.lastModified), run: () => void openSession(s.id) })),
