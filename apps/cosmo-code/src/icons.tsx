@@ -40,6 +40,16 @@ const PATHS = {
   list: "M4 6h16M4 12h16M4 18h10",
   rewind: "M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4",
   keyboard: "M3 7h18v11H3zM7 11h.01M11 11h.01M15 11h.01M8 15h8",
+  shield: "M12 3l7 3v6c0 4.5-3 7.5-7 9c-4-1.5-7-4.5-7-9V6z",
+  gauge: "M4 17a8 8 0 1 1 16 0M12 17l4-6",
+  monitor: "M3 5h18v11H3zM8 20h8M12 16v4",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  sun: "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+  moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z",
+  plug: "M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4",
+  blocks: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  book: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11",
+  listChecks: "M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17M11 6h9M11 12h9M11 18h9",
 } as const
 
 export type IconName = keyof typeof PATHS

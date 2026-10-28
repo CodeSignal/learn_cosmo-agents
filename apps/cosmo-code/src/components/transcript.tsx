@@ -3,10 +3,13 @@
 // (expand for the command and output, or the edit's diff; a file opens in the Files pane), thinking
 // rows, then the reply streaming in, the card the engine is waiting on, and the working indicator.
 // After a rewind, "Rewound here · Undo rewind" ends the conversation until the next message.
-import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
+// The session's transcript view decides what starts open: Thinking opens thinking rows, Verbose
+// tool rows too.
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { structuredPatch } from "diff"
 import { Icon } from "../icons"
+import { viewOf, type TranscriptView } from "../prefs"
 import { copy, dismiss, fork, FOLDER, openFileInPane, requestFor, rewindTo, send, state, undoRewind, WORKSPACE, type RawMessage, type Session } from "../store"
 import { editStats, isEdit, outcome, resultText, rowLabel, type ToolResult, type ToolUse } from "../tools"
 import { RequestCard } from "./cards"
@@ -148,8 +151,15 @@ function workspaceFile(tool: ToolUse) {
   return path.startsWith(`${WORKSPACE}/`) ? path.slice(WORKSPACE.length + 1) : undefined
 }
 
-function ToolRow(props: { tool: ToolUse; result?: ToolResult }) {
+/** Whether rows start open in the active session's view (and follow it when it changes). */
+function openIn(views: TranscriptView[]) {
   const [open, setOpen] = createSignal(false)
+  createEffect(on(() => viewOf(state.activeId), (view) => setOpen(views.includes(view))))
+  return [open, setOpen] as const
+}
+
+function ToolRow(props: { tool: ToolUse; result?: ToolResult }) {
+  const [open, setOpen] = openIn(["verbose"])
   const label = () => rowLabel(props.tool, props.result)
   const done = () => !!props.result
   const end = () => outcome(props.tool, props.result)
@@ -342,7 +352,7 @@ export function Transcript(props: { session: Session }) {
 }
 
 function ThinkingRow(props: { text: string }) {
-  const [open, setOpen] = createSignal(false)
+  const [open, setOpen] = openIn(["thinking", "verbose"])
   return (
     <section class="cc-tool">
       <button class="cc-tool-row cc-thinking" aria-expanded={open()} onClick={() => setOpen((v) => !v)}>

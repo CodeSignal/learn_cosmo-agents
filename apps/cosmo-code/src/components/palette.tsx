@@ -4,8 +4,7 @@
 // prompt and choosing New session starts a session with it.
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { Icon, type IconName } from "../icons"
-import { soon } from "./chrome"
-import { closePalette, newSession, openPalette, openSession, send, sessionOrder, state, toggleSidebar } from "../store"
+import { closePalette, newSession, openPalette, openSession, openSettings, send, sessionOrder, state, togglePane, toggleShortcuts, toggleSidebar, type SettingsPage } from "../store"
 
 const LOCKED = "Not available in this task"
 
@@ -29,28 +28,35 @@ const ACTIONS: Section[] = [
     title: "Session",
     entries: [
       { key: "import", icon: "terminal", label: "Import CLI sessions", locked: LOCKED, run: () => {} },
-      { key: "terminal", icon: "terminal", label: "Show terminal", keys: ["Ctrl", "`"], run: soon },
-      { key: "files", icon: "folder", label: "Show files", keys: ["Ctrl", "Shift", "F"], run: soon },
+      { key: "terminal", icon: "terminal", label: "Show terminal", keys: ["Ctrl", "`"], run: () => state.pane !== "terminal" && togglePane("terminal") },
+      { key: "files", icon: "folder", label: "Show files", keys: ["Ctrl", "Shift", "F"], run: () => state.pane !== "files" && togglePane("files") },
     ],
   },
   {
     title: "Settings",
     entries: [
-      ...["General", "Privacy", "Usage", "Cosmo Code"].map((page): Entry => ({ key: `s-${page}`, icon: "gear", label: `Settings → ${page}`, run: soon })),
-      { key: "s-cowork", icon: "gear", label: "Settings → Cowork", locked: LOCKED, run: () => {} },
-      { key: "s-import", icon: "gear", label: "Settings → Import & export", locked: LOCKED, run: () => {} },
-      { key: "s-system", icon: "gear", label: "Settings → This computer → System", run: soon },
+      ...(
+        [
+          ["general", "General"],
+          ["privacy", "Privacy"],
+          ["usage", "Usage"],
+          ["code", "Cosmo Code"],
+          ["cowork", "Cowork"],
+          ["import", "Import & export"],
+        ] as [SettingsPage, string][]
+      ).map(([page, title]): Entry => ({ key: `s-${page}`, icon: "gear", label: `Settings → ${title}`, run: () => openSettings(page) })),
+      { key: "s-system", icon: "gear", label: "Settings → This computer → System", run: () => openSettings("system") },
     ],
   },
   {
     title: "Customize",
-    entries: ["Skills", "Connectors", "Plugins"].map((page): Entry => ({ key: `c-${page}`, icon: "briefcase", label: `Customize → ${page}`, run: soon })),
+    entries: ["Skills", "Connectors", "Plugins"].map((page): Entry => ({ key: `c-${page}`, icon: "briefcase", label: `Customize → ${page}`, run: () => openSettings(page.toLowerCase() as SettingsPage) })),
   },
   {
     title: "General",
     entries: [
       { key: "sidebar", icon: "sidebar", label: "Toggle sidebar", keys: ["Ctrl", "B"], run: toggleSidebar },
-      { key: "shortcuts", icon: "keyboard", label: "Keyboard shortcuts", keys: ["Ctrl", "/"], run: soon },
+      { key: "shortcuts", icon: "keyboard", label: "Keyboard shortcuts", keys: ["Ctrl", "/"], run: toggleShortcuts },
       { key: "nav", icon: "sidebar", label: "Jump to navigation", run: () => focus(".cc-sidebar button") },
       { key: "main", icon: "code", label: "Jump to main content", run: () => focus(".cc-scroll") },
       { key: "input", icon: "comment", label: "Jump to input", run: () => focus(".cc-prompt") },

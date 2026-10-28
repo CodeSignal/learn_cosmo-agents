@@ -3,9 +3,11 @@
 // engine's open permission requests.
 import { createStore, produce } from "solid-js/store"
 import { call, EngineError, listen, respond, type EngineMessage } from "./engine"
+import { prefs } from "./prefs"
 
 export const WORKSPACE = import.meta.env.VITE_WORKSPACE ?? "/usercode/FILESYSTEM"
-export type Pane = "plan" | "changes" | "terminal" | "files"
+export type Pane = "plan" | "changes" | "terminal" | "files" | "tasks"
+export type SettingsPage = "general" | "privacy" | "usage" | "code" | "cowork" | "import" | "system" | "skills" | "connectors" | "plugins"
 export const FOLDER = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
 
 export type Mode = "default" | "acceptEdits" | "plan"
@@ -65,6 +67,11 @@ const [state, setState] = createStore({
   composerText: null as string | null,
   /** Whether the task gives the candidate a terminal (the server's /api/session). */
   terminal: false,
+  /** Whether the task runs commands in its sandbox (the server's /api/session). */
+  sandbox: false,
+  /** The Settings modal's page, when open; and the keyboard shortcuts dialog. */
+  settings: null as SettingsPage | null,
+  shortcuts: false,
   /** The command palette (Ctrl+K): closed, or showing recents or actions. */
   palette: null as "recents" | "actions" | null,
   /** Next-step boxes the candidate dismissed, by the tool call that filled them. */
@@ -259,7 +266,7 @@ export function start() {
   listen(onMessage)
   void fetch("/api/session")
     .then((res) => (res.ok ? res.json() : undefined))
-    .then((session) => setState("terminal", !!session?.terminal && session.terminal !== "off"))
+    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", sandbox: !!session?.sandbox }))
     .catch(() => setState("terminal", false))
 }
 
@@ -348,6 +355,8 @@ export async function send(text: string) {
         ...(state.draft.model ? { model: state.draft.model } : {}),
         permissionMode: draft.mode,
         ...(state.draft.effort ? { effort: state.draft.effort } : {}),
+        // Settings → General → Instructions for Claude, for the sessions started from now on.
+        ...(prefs.instructions.trim() ? { instructions: prefs.instructions.trim() } : {}),
       })
       setState("sessions", sessionId, {
         ...blankSession(sessionId, text.slice(0, 80)),
@@ -544,6 +553,18 @@ export function openPalette(mode: "recents" | "actions" = "recents") {
 
 export function closePalette() {
   setState("palette", null)
+}
+
+export function openSettings(page: SettingsPage = state.settings ?? "general") {
+  setState({ settings: page, palette: null, shortcuts: false })
+}
+
+export function closeSettings() {
+  setState("settings", null)
+}
+
+export function toggleShortcuts() {
+  setState({ shortcuts: !state.shortcuts, palette: null })
 }
 
 export function dismiss(toolUseId: string) {

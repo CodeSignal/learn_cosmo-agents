@@ -1,22 +1,72 @@
 // The Cosmo Code window: title bar; sidebar · transcript with the composer · the session rail, or a
-// pane (Plan, Changes, Terminal, Files) in its place. Without an open session the main column is a
-// new session (the prompt bar shows where and how it will run).
+// pane (Plan, Background tasks, Changes, Terminal, Files) in its place. Without an open session the
+// main column is a new session (the prompt bar shows where and how it will run). Settings and the
+// keyboard shortcuts open as dialogs over it.
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js"
 import { SessionRail, Sidebar, TitleBar } from "./components/chrome"
 import { Composer } from "./components/composer"
 import { Transcript } from "./components/transcript"
 import { Palette } from "./components/palette"
-import { ChangesPane, FilesPane, PlanPane, TerminalPane } from "./components/panes"
-import { activeSession, closePalette, closePane, newSession, openPalette, state, toggleExpanded, togglePane, toggleSidebar } from "./store"
+import { ChangesPane, FilesPane, PlanPane, TasksPane, TerminalPane } from "./components/panes"
+import { Settings } from "./components/settings"
+import { Shortcuts } from "./components/shortcuts"
+import { cycleView } from "./prefs"
+import {
+  activeSession,
+  archive,
+  closePalette,
+  closePane,
+  newSession,
+  openPalette,
+  openSession,
+  openSettings,
+  sessionOrder,
+  state,
+  toggleExpanded,
+  togglePane,
+  toggleShortcuts,
+  toggleSidebar,
+} from "./store"
 
-// Shortcuts from the original: Ctrl+N new session, Ctrl+B sidebar, Ctrl+\ close the pane and
-// Ctrl+Shift+\ expand it, Ctrl+` terminal, Ctrl+Shift+D changes, Ctrl+Shift+F files, Ctrl+K (and
-// Ctrl+Shift+K) the command palette, Ctrl+Shift+M / Ctrl+Shift+I the mode and model menus.
+/** The next (or previous) session in the sidebar's order, from the open one. */
+function stepSession(by: 1 | -1) {
+  const order = sessionOrder()
+  if (!order.length) return
+  const at = order.findIndex((s) => s.id === state.activeId)
+  const next = order[(at + by + order.length) % order.length]!
+  void openSession(next.id)
+}
+
+/** F6 / Shift+F6: focus the next (previous) page area — sidebar, the prompt, the right column. */
+function focusArea(by: 1 | -1) {
+  const areas = [".cc-sidebar", ".cc-prompt", ".cc-pane:not([hidden]), .cc-rail"]
+    .map((sel) => document.querySelector(sel) as HTMLElement | null)
+    .filter((el): el is HTMLElement => !!el)
+  if (!areas.length) return
+  const at = areas.findIndex((el) => el.contains(document.activeElement))
+  const area = areas[(at + by + areas.length) % areas.length]!
+  const target = area.matches("button, input, textarea, [contenteditable], [tabindex]") ? area : area.querySelector<HTMLElement>("button:not(:disabled), input, textarea, [contenteditable], [tabindex]")
+  target?.focus()
+}
+
+// Shortcuts from the original: Ctrl+N (Ctrl+Shift+N) new session, Ctrl+B sidebar, Ctrl+\ close the
+// pane and Ctrl+Shift+\ expand it, Ctrl+` terminal, Ctrl+Shift+D changes, Ctrl+Shift+F files,
+// Ctrl+K (and Ctrl+Shift+K) the command palette, Ctrl+Shift+M / Ctrl+Shift+I the mode and model
+// menus, Ctrl+, settings, Ctrl+/ shortcuts, Ctrl+O transcript view, Ctrl+Shift+] / [ (Ctrl+Tab)
+// next and previous session, Ctrl+Shift+Backspace archive, F6 page areas.
 document.addEventListener("keydown", (e) => {
+  if (e.key === "F6" && !e.ctrlKey && !e.altKey) return void (e.preventDefault(), focusArea(e.shiftKey ? -1 : 1))
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return
   const key = e.key.toLowerCase()
   const open = (menu: string) => (document.querySelector(`[data-menu="${menu}"]`) as HTMLElement | null)?.click()
-  if (!e.shiftKey && key === "n") (e.preventDefault(), newSession())
+  const session = activeSession()
+  if (key === "n") (e.preventDefault(), newSession())
+  else if (!e.shiftKey && (key === "," || e.code === "Comma")) (e.preventDefault(), state.settings ? undefined : openSettings())
+  else if (!e.shiftKey && (key === "/" || e.code === "Slash")) (e.preventDefault(), toggleShortcuts())
+  else if (!e.shiftKey && key === "o" && session) (e.preventDefault(), cycleView(session.id))
+  else if (e.shiftKey && key === "backspace" && session) (e.preventDefault(), void archive(session.id))
+  else if (e.shiftKey && (e.code === "BracketRight" || e.code === "BracketLeft")) (e.preventDefault(), stepSession(e.code === "BracketRight" ? 1 : -1))
+  else if (key === "tab") (e.preventDefault(), stepSession(e.shiftKey ? -1 : 1))
   else if (!e.shiftKey && key === "b") (e.preventDefault(), toggleSidebar())
   else if ((e.code === "Backslash" || e.key === "\\" || e.key === "|") && state.pane) (e.preventDefault(), e.shiftKey ? toggleExpanded() : closePane())
   else if (!e.shiftKey && (e.code === "Backquote" || e.key === "`")) (e.preventDefault(), togglePane("terminal"))
@@ -68,6 +118,8 @@ export function App() {
           </div>
           <Composer />
           <Palette />
+          <Settings />
+          <Shortcuts />
           <Show when={state.toast}>
             <div class="cc-toast" role="status">
               {state.toast}
@@ -79,6 +131,9 @@ export function App() {
         </Show>
         <Show when={state.pane === "plan"}>
           <PlanPane />
+        </Show>
+        <Show when={state.pane === "tasks"}>
+          <TasksPane />
         </Show>
         <Show when={state.pane === "changes"}>
           <ChangesPane />

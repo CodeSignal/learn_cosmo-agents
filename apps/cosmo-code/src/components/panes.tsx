@@ -1,6 +1,6 @@
 // The right column's panes. Each has the original's frame: its own controls, then Open in new window
 // (not here), Expand (Ctrl+Shift+\) and Close (Ctrl+\).
-// · Plan: the proposed plan.
+// · Plan: the proposed plan. · Background tasks (S32): from View options.
 // · Changes (S25): the workspace's diff — "main → working tree" (All changes vs main, or
 //   Uncommitted changes) — one block per file with Open file; the file list on the side.
 // · Files (S39): the file tree with a filter, and the files you open, read-only.
@@ -60,9 +60,39 @@ export function PlanPane() {
         </>
       }
     >
-      <div class="cc-pane-body">
-        <Markdown class="cc-markdown" text={state.plan ?? ""} />
-      </div>
+      <Show
+        when={state.plan}
+        fallback={
+          <div class="cc-pane-empty">
+            <strong>No plan yet</strong>
+            <span>In plan mode, the plan Claude proposes shows here.</span>
+          </div>
+        }
+      >
+        {(plan) => (
+          <div class="cc-pane-body">
+            <Markdown class="cc-markdown" text={plan()} />
+          </div>
+        )}
+      </Show>
+    </PaneFrame>
+  )
+}
+
+export function TasksPane() {
+  return (
+    <PaneFrame
+      label="Background tasks"
+      head={
+        <>
+          <span class="cc-pane-title">Background tasks</span>
+          <button class="cc-icon-btn cc-small" aria-label="Clear finished tasks" disabled>
+            <Icon name="list" size={15} />
+          </button>
+        </>
+      }
+    >
+      <p class="cc-pane-empty">Background tasks appear here</p>
     </PaneFrame>
   )
 }
@@ -452,7 +482,7 @@ function TerminalView(props: { active: boolean }) {
   }
   onMount(async () => {
     const { mod, ghostty } = await loadGhostty()
-    const t = new mod.Terminal({ cursorBlink: true, cursorStyle: "bar", fontSize: 13, fontFamily: "JetBrains Mono, ui-monospace, monospace", theme: terminalColors(), scrollback: 10_000, ghostty })
+    const t = new mod.Terminal({ cursorBlink: true, cursorStyle: "bar", fontSize: 13, fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--cc-mono").trim() || "JetBrains Mono, ui-monospace, monospace", theme: terminalColors(), scrollback: 10_000, ghostty })
     term = t
     cleanups.push(() => t.dispose())
     fit = new mod.FitAddon()

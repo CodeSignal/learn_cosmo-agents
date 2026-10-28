@@ -1,9 +1,10 @@
 // The window frame: title bar (menu, sidebar, back/forward · session title · pane toggles), the
-// sidebar (New, Customize, the folder's sessions, account and search), and the session rail
-// (Environment and Context cards) on the right.
+// sidebar (New, Customize, the folder's sessions, the account menu and search), and the session
+// rail (Environment and Context cards) on the right.
 import { createSignal, For, Show } from "solid-js"
 import { Icon, type IconName } from "../icons"
 import { MenuList, Popover, type MenuItem } from "./popover"
+import { setSessionView, viewOf, type TranscriptView } from "../prefs"
 import {
   activeSession,
   archive,
@@ -12,6 +13,7 @@ import {
   newSession,
   openPalette,
   openSession,
+  openSettings,
   rename,
   requestFor,
   setRenamingTitle,
@@ -20,6 +22,7 @@ import {
   state,
   togglePane,
   toggleRail,
+  toggleShortcuts,
   toggleSidebar,
   WORKSPACE,
   type Session,
@@ -28,13 +31,28 @@ import {
 const LOCKED = "Not available in this task"
 export const soon = () => showToast("This part of Cosmo Code isn't available yet.")
 
-/** The session's menu (row "More options" and the title's ⌄): rename, fork, archive; deleting a
- * transcript isn't something a task allows. */
-export function sessionMenu(session: Session, startRename: () => void): MenuItem[] {
+const VIEWS: { value: TranscriptView; label: string }[] = [
+  { value: "normal", label: "Normal" },
+  { value: "thinking", label: "Thinking" },
+  { value: "verbose", label: "Verbose" },
+]
+
+/** The session's menu (row "More options" and the title's ⌄): rename, fork, archive, and in the
+ * title's menu the session's transcript view; deleting a transcript isn't something a task allows. */
+export function sessionMenu(session: Session, startRename: () => void, title = false): MenuItem[] {
   return [
     { label: "Open in", locked: LOCKED },
     { label: "Rename", shortcut: "R", onSelect: startRename },
     { label: "Fork", shortcut: "F", onSelect: () => void fork(session.id) },
+    ...(title
+      ? ([
+          {
+            label: "Transcript view",
+            submenu: VIEWS.map((v) => ({ label: v.label, checked: viewOf(session.id) === v.value, onSelect: () => setSessionView(session.id, v.value) })),
+          },
+          { label: "Output style", locked: "Set by this task" },
+        ] satisfies MenuItem[])
+      : []),
     { label: "Archive", shortcut: "A", onSelect: () => void archive(session.id) },
     { separator: true },
     { label: "Delete", shortcut: "D", locked: LOCKED },
@@ -115,7 +133,7 @@ export function TitleBar() {
                   </button>
                 )}
               >
-                {(close) => <MenuList close={close} items={sessionMenu(s(), () => setRenaming(true))} />}
+                {(close) => <MenuList close={close} items={sessionMenu(s(), () => setRenaming(true), true)} />}
               </Popover>
             </Show>
           )}
@@ -132,7 +150,25 @@ export function TitleBar() {
         </Show>
         <Toggle icon="folder" label="Files" shortcut="Control+Shift+F" pressed={state.pane === "files"} onClick={() => togglePane("files")} />
         <Show when={session()}>
-          <Toggle icon="moreVertical" label="View options" />
+          <Popover
+            align="end"
+            trigger={(open, toggle) => (
+              <button class="cc-icon-btn" aria-label="View options" aria-haspopup="menu" aria-expanded={open()} onClick={toggle}>
+                <Icon name="moreVertical" size={17} />
+              </button>
+            )}
+          >
+            {(close) => (
+              <MenuList
+                close={close}
+                items={[
+                  { label: "Side chat", shortcut: "Ctrl+;", checkable: true, locked: LOCKED },
+                  { label: "Background tasks", checked: state.pane === "tasks", onSelect: () => togglePane("tasks") },
+                  { label: "Plan", checked: state.pane === "plan", onSelect: () => togglePane("plan") },
+                ]}
+              />
+            )}
+          </Popover>
         </Show>
       </div>
     </header>
@@ -173,7 +209,7 @@ export function Sidebar() {
       <button class="cc-side-action" aria-keyshortcuts="Control+N" data-active={state.activeId ? undefined : ""} onClick={newSession}>
         <Icon name="plus" size={16} /> New
       </button>
-      <button class="cc-side-action" onClick={soon}>
+      <button class="cc-side-action" onClick={() => openSettings("skills")}>
         <Icon name="briefcase" size={16} /> Customize
       </button>
       <Show
@@ -197,10 +233,17 @@ export function Sidebar() {
       </Show>
       <div class="cc-grow" />
       <footer class="cc-side-foot">
-        <button class="cc-account" aria-label="runner Gateway" onClick={soon}>
-          <span class="cc-avatar" aria-hidden="true">r</span> runner <span class="cc-muted">· Gateway</span>
-          <Icon name="chevronDown" size={13} />
-        </button>
+        <Popover
+          placement="above"
+          trigger={(open, toggle) => (
+            <button class="cc-account" aria-label="runner Gateway" aria-haspopup="menu" aria-expanded={open()} onClick={toggle}>
+              <span class="cc-avatar" aria-hidden="true">r</span> runner <span class="cc-muted">· Gateway</span>
+              <Icon name="chevronDown" size={13} />
+            </button>
+          )}
+        >
+          {(close) => <MenuList close={close} items={accountMenu()} />}
+        </Popover>
         <div class="cc-grow" />
         <button class="cc-icon-btn" aria-label="Search" aria-keyshortcuts="Control+Shift+K" onClick={() => openPalette()}>
           <Icon name="search" size={16} />
@@ -208,6 +251,28 @@ export function Sidebar() {
       </footer>
     </aside>
   )
+}
+
+/** The account menu (S14): settings and shortcuts; the rest leaves the app, which a task doesn't. */
+function accountMenu(): MenuItem[] {
+  return [
+    { label: "Settings", shortcut: "Ctrl+,", onSelect: () => openSettings("general") },
+    { label: "Language", submenu: [{ label: "English", checked: true }] },
+    { separator: true },
+    { label: "View changelog", locked: LOCKED },
+    {
+      label: "Learn more",
+      submenu: [
+        ...["About Anthropic", "Tutorials", "Courses"].map((label) => ({ label, locked: LOCKED })),
+        { separator: true },
+        ...["Usage policy", "Privacy policy", "Commercial terms", "Your privacy choices"].map((label) => ({ label, locked: LOCKED })),
+        { separator: true },
+        { label: "Keyboard shortcuts", shortcut: "Ctrl+/", onSelect: toggleShortcuts },
+      ],
+    },
+    { separator: true },
+    { label: "Sign out", locked: LOCKED },
+  ]
 }
 
 /** The session rail: where the session runs, and how full its context is. */
