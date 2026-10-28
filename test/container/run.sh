@@ -152,6 +152,27 @@ check C9 "Cosmo Code refusals and approval answers are in the event log" \
   as_root 'grep -q "\"gateway\":\"claude\".*\"reason\":\"the permission mode\"" /var/lib/agentsim/events/events.jsonl && grep -q "\"gateway\":\"claude\".*\"reply\":\"once\"" /var/lib/agentsim/events/events.jsonl'
 
 echo
+echo "-- evaluation (run_solution.sh)"
+EV=/var/lib/agentsim/events/events.jsonl
+check T1 "each agent's turns are recorded by its gateway: prompt, model, tools and how each ended" \
+  as_root 'for g in opencode codex claude; do jq -se --arg g $g "[.[] | select(.type==\"turn\" and .gateway==\$g and (.prompt|length) > 0)] | length > 0" '$EV' >/dev/null && jq -se --arg g $g "[.[] | select(.type==\"turn-end\" and .gateway==\$g and .model != null)] | length > 0" '$EV' >/dev/null || { echo "no turn record from $g"; exit 1; }; done'
+check T2 "run_solution starts with the summary and lists every agent's turns" \
+  R '/opt/agentsim/scripts/run_solution.sh > /tmp/run.txt; head -1 /tmp/run.txt | grep -qx "## SUMMARY" && for a in opencosmo cosmodex cosmo-code; do grep -Eq "^Turns \($a\): [1-9]" /tmp/run.txt || { echo "no turns for $a"; exit 1; }; done && grep -q "^## TURNS" /tmp/run.txt'
+# The platform's provisioner (not part of this repository) extracts transcripts into
+# .codesignal/<engine>/; pass its bundle to check that it reads all three engines' sessions.
+if [ -n "${PROVISIONER_BUNDLE:-}" ]; then
+  docker cp "$PROVISIONER_BUNDLE" "$NAME":/tmp/agent_provisioner.py >/dev/null
+  R 'python3 /tmp/agent_provisioner.py extract >/tmp/extract.log 2>&1'
+  for pair in E1:claude E2:codex E3:opencode; do
+    id=${pair%%:*}; engine=${pair#*:}
+    check "$id" "the provisioner extracts $engine sessions and run_solution prints them" \
+      R "f=\$(ls .codesignal/$engine/interactions_summary.*.jsonl 2>/dev/null | head -1); [ -s \"\$f\" ] && /opt/agentsim/scripts/run_solution.sh | grep -q '## TIMELINE ($engine)'"
+  done
+else
+  echo "SKIP  E1-3 transcript extraction (set PROVISIONER_BUNDLE to the provisioner's bundle)"
+fi
+
+echo
 if [ "$FAILS" -eq 0 ]; then echo "all checks passed"; else echo "$FAILS check(s) failed"; fi
 [ "$KEEP" = "--keep" ] || docker rm -f "$NAME" >/dev/null
 exit $((FAILS > 0))

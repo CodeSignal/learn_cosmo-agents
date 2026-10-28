@@ -4,6 +4,7 @@
 // modes the task allows (never bypass). Answers to the engine's permission requests are plain:
 // allow or deny, an "always allow" only for the rule the engine suggested, and edited input only
 // for questions (the candidate's answers).
+import { createTurnRecorder } from "../turns.mjs";
 import { createJsonRpcGateway } from "./jsonrpc.mjs";
 
 export const CLAUDE_HOST_PROTOCOL = 1;
@@ -142,6 +143,28 @@ export function checkAnswer(asked, result = {}, ctx = {}) {
  * @param url       ws://127.0.0.1:<port>/?token=<per-boot token>
  * @param ceilings  { models, modes, webTools } from policy/render.mjs claudeCeilings
  */
+// The app's own tools (the task list, the next-step box) aren't the agent's work.
+const APP_TOOL = "mcp__cosmo_turn__";
+
+/** The turn record from the engine host's traffic: prompts sent, the model and mode each session's
+ * engine reports, the main agent's tool calls, and each turn's result. */
+export function claudeTurns(turns) {
+  return {
+    call(method, params, result) {
+      if (method === "session/send") turns.start(result?.sessionId ?? params?.sessionId, { prompt: params?.text, model: params?.model, mode: params?.permissionMode });
+      else if (method === "session/configure") turns.settings(params?.sessionId, { model: params?.model, mode: params?.permissionMode });
+    },
+    notify(msg) {
+      if (msg.method !== "session/message") return;
+      const { sessionId, message: m } = msg.params ?? {};
+      if (m?.type === "system" && m.subtype === "init") turns.settings(sessionId, { model: m.model, mode: m.permissionMode });
+      else if (m?.type === "assistant" && !m.parent_tool_use_id && Array.isArray(m.message?.content)) {
+        for (const b of m.message.content) if (b?.type === "tool_use" && !String(b.name).startsWith(APP_TOOL)) turns.tool(sessionId, b.name);
+      } else if (m?.type === "result") turns.end(sessionId, m.subtype === "success" ? "completed" : m.subtype === "error_during_execution" ? "interrupted" : "failed");
+    },
+  };
+}
+
 export function createClaudeGateway({ url, ceilings, terminal = false, events, agent = "cosmo-code" }) {
   const ctx = { models: [...ceilings.models], modes: [...ceilings.modes], webTools: !!ceilings.webTools };
   const handler = createJsonRpcGateway({
@@ -161,6 +184,7 @@ export function createClaudeGateway({ url, ceilings, terminal = false, events, a
     ask: (msg) => (msg.method === "session/permission" ? true : "this request"),
     answer: (asked, result) => checkAnswer(asked, result, ctx),
     resolvedId: (msg) => (msg.method === "session/permissionCancelled" ? msg.params?.id : undefined),
+    observe: claudeTurns(createTurnRecorder({ events, gateway: "claude", agent })),
   });
   return handler;
 }

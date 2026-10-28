@@ -2,6 +2,7 @@
 // Only classified methods pass, and their parameters are checked against what the task allows.
 import path from "node:path";
 import { createJsonRpcGateway } from "./jsonrpc.mjs";
+import { createTurnRecorder, inputText } from "../turns.mjs";
 import fs from "node:fs";
 import { METHODS, DECISIONS, USER_INPUT, CODEX_VERSION } from "./codex-methods.mjs";
 
@@ -96,6 +97,33 @@ export function checkParams(method, params = {}, ctx) {
 
 const CONFIG_REASON = (key) => (key.startsWith("serviceTier") || key === "serviceName" ? "the service tier" : "configuration");
 
+// Thread items that are the conversation itself rather than the agent's tool use.
+const NOT_TOOLS = new Set(["userMessage", "agentMessage", "reasoning", "plan", "hookPrompt", "contextCompaction", "functionCallOutput"]);
+
+/** The turn record from app-server traffic: threads' models, prompts (turn/start, turn/steer),
+ * finished tool items, and turn/completed. */
+export function codexTurns(turns) {
+  return {
+    call(method, params, result) {
+      if (THREAD_SETUP.has(method)) turns.settings(result?.thread?.id, { model: result?.model });
+      else if (method === "turn/start" || method === "turn/steer") {
+        turns.start(params?.threadId, {
+          prompt: inputText(params?.input),
+          model: params?.model ?? params?.collaborationMode?.settings?.model,
+          mode: params?.collaborationMode?.mode,
+          steer: method === "turn/steer",
+        });
+      }
+    },
+    notify(msg) {
+      const p = msg.params ?? {};
+      if (msg.method === "item/completed" && p.item && !NOT_TOOLS.has(p.item.type)) {
+        turns.tool(p.threadId, p.item.type === "mcpToolCall" ? `mcp:${p.item.server}/${p.item.tool}` : p.item.type);
+      } else if (msg.method === "turn/completed") turns.end(p.threadId, p.turn?.status);
+    },
+  };
+}
+
 export function createCodexGateway({ url, workspace, terminal, ceilings, events, agent = "cosmodex" }) {
   const ctx = { workspace: workspace.replace(/\/+$/, ""), ...ceilings };
 
@@ -140,5 +168,6 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
       return { result: { decision: result.decision }, reply: result.decision };
     },
     resolvedId: (msg) => (msg.method === "serverRequest/resolved" ? msg.params?.requestId : undefined),
+    observe: codexTurns(createTurnRecorder({ events, gateway: "codex", agent })),
   });
 }

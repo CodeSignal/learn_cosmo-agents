@@ -121,8 +121,10 @@ export class EngineLink {
  * @param ask         (engine request) → true to put it to the candidate, or the reason to refuse it
  * @param answer      (asked request, the browser's result) → { result, reply? } | { reason }
  * @param resolvedId  (notification) → the id of an engine request the engine withdrew, if any
+ * @param observe     { call(method, params, result), notify(msg) }: sees every call the engine
+ *                    answered and every notification (the turn record)
  */
-export function createJsonRpcGateway({ name, agent, url, handshake, methods, terminal = false, check, ask, answer, resolvedId = () => undefined, events }) {
+export function createJsonRpcGateway({ name, agent, url, handshake, methods, terminal = false, check, ask, answer, resolvedId = () => undefined, observe, events }) {
   const gateway = new RouteGateway({ name, rules: [], events });
   const clients = new Set();
   // Engine requests awaiting the candidate, keyed by String(id): the browser may send the id back as
@@ -133,6 +135,14 @@ export function createJsonRpcGateway({ name, agent, url, handshake, methods, ter
     for (const res of clients) res.write(line);
   };
   const record = (type, detail) => events?.record(type, { gateway: name, agent, ...detail });
+  // The record never gets in the way of the engine's traffic.
+  const watch = (fn) => {
+    try {
+      fn();
+    } catch (error) {
+      console.error(`${name}: turn record: ${error.message}`);
+    }
+  };
 
   const link = new EngineLink({
     url,
@@ -151,6 +161,7 @@ export function createJsonRpcGateway({ name, agent, url, handshake, methods, ter
       }
       const withdrawn = resolvedId(msg);
       if (withdrawn !== undefined) openRequests.delete(String(withdrawn));
+      watch(() => observe?.notify?.(msg));
       broadcast(msg);
     },
   });
@@ -181,6 +192,7 @@ export function createJsonRpcGateway({ name, agent, url, handshake, methods, ter
     }
     try {
       const result = await link.request(method, checked.params);
+      watch(() => observe?.call?.(method, checked.params, result));
       send(res, 200, { result });
     } catch (error) {
       send(res, 200, { error });

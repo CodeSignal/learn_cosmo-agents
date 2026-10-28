@@ -292,6 +292,7 @@ export function gatewaysFor(policy, events, env = process.env) {
       workspace: env.WORKSPACE || "/usercode/FILESYSTEM",
       terminal: policy.terminal === "sandboxed",
       events,
+      watch: true,
     });
   }
   if (policy.agents.includes("cosmodex")) {
