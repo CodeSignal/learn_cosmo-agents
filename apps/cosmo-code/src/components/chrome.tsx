@@ -146,7 +146,7 @@ export function TitleBar() {
         <Toggle icon="terminal" label="Terminal" shortcut="Control+`" pressed={state.pane === "terminal"} onClick={() => togglePane("terminal")} />
         <Show when={session()}>
           <Toggle icon="changes" label="Changes" shortcut="Control+Shift+D" pressed={state.pane === "changes"} onClick={() => togglePane("changes")} />
-          <Toggle icon="play" label="Preview" shortcut="Control+Shift+P" />
+          <Toggle icon="play" label="Preview" shortcut="Control+Shift+P" pressed={state.pane === "preview"} onClick={() => togglePane("preview")} />
         </Show>
         <Toggle icon="folder" label="Files" shortcut="Control+Shift+F" pressed={state.pane === "files"} onClick={() => togglePane("files")} />
         <Show when={session()}>

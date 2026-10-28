@@ -1,5 +1,5 @@
 // The Cosmo Code window: title bar; sidebar · transcript with the composer · the session rail, or a
-// pane (Plan, Background tasks, Changes, Terminal, Files) in its place. Without an open session the
+// pane (Plan, Background tasks, Changes, Terminal, Preview, Files) in its place. Without an open session the
 // main column is a new session (the prompt bar shows where and how it will run). Settings and the
 // keyboard shortcuts open as dialogs over it.
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js"
@@ -7,7 +7,7 @@ import { SessionRail, Sidebar, TitleBar } from "./components/chrome"
 import { Composer } from "./components/composer"
 import { Transcript } from "./components/transcript"
 import { Palette } from "./components/palette"
-import { ChangesPane, FilesPane, PlanPane, TasksPane, TerminalPane } from "./components/panes"
+import { ChangesPane, FilesPane, PlanPane, PreviewPane, TasksPane, TerminalPane } from "./components/panes"
 import { Settings } from "./components/settings"
 import { Shortcuts } from "./components/shortcuts"
 import { cycleView } from "./prefs"
@@ -24,6 +24,7 @@ import {
   state,
   toggleExpanded,
   togglePane,
+  reloadPreview,
   toggleShortcuts,
   toggleSidebar,
 } from "./store"
@@ -51,11 +52,13 @@ function focusArea(by: 1 | -1) {
 
 // Shortcuts from the original: Ctrl+N (Ctrl+Shift+N) new session, Ctrl+B sidebar, Ctrl+\ close the
 // pane and Ctrl+Shift+\ expand it, Ctrl+` terminal, Ctrl+Shift+D changes, Ctrl+Shift+F files,
-// Ctrl+K (and Ctrl+Shift+K) the command palette, Ctrl+Shift+M / Ctrl+Shift+I the mode and model
-// menus, Ctrl+, settings, Ctrl+/ shortcuts, Ctrl+O transcript view, Ctrl+Shift+] / [ (Ctrl+Tab)
-// next and previous session, Ctrl+Shift+Backspace archive, F6 page areas.
+// Ctrl+Shift+P preview (F5 reloads it), Ctrl+K (and Ctrl+Shift+K) the command palette,
+// Ctrl+Shift+M / Ctrl+Shift+I the mode and model menus, Ctrl+, settings, Ctrl+/ shortcuts, Ctrl+O
+// transcript view, Ctrl+Shift+] / [ (Ctrl+Tab) next and previous session, Ctrl+Shift+Backspace
+// archive, F6 page areas.
 document.addEventListener("keydown", (e) => {
   if (e.key === "F6" && !e.ctrlKey && !e.altKey) return void (e.preventDefault(), focusArea(e.shiftKey ? -1 : 1))
+  if (e.key === "F5" && state.pane === "preview" && !e.ctrlKey) return void (e.preventDefault(), reloadPreview())
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return
   const key = e.key.toLowerCase()
   const open = (menu: string) => (document.querySelector(`[data-menu="${menu}"]`) as HTMLElement | null)?.click()
@@ -72,6 +75,7 @@ document.addEventListener("keydown", (e) => {
   else if (!e.shiftKey && (e.code === "Backquote" || e.key === "`")) (e.preventDefault(), togglePane("terminal"))
   else if (e.shiftKey && key === "d" && activeSession()) (e.preventDefault(), togglePane("changes"))
   else if (e.shiftKey && key === "f") (e.preventDefault(), togglePane("files"))
+  else if (e.shiftKey && key === "p" && session) (e.preventDefault(), togglePane("preview"))
   else if (key === "k") (e.preventDefault(), state.palette ? closePalette() : openPalette())
   else if (e.shiftKey && key === "m") (e.preventDefault(), open("mode"))
   else if (e.shiftKey && key === "i") (e.preventDefault(), open("model"))
@@ -134,6 +138,9 @@ export function App() {
         </Show>
         <Show when={state.pane === "tasks"}>
           <TasksPane />
+        </Show>
+        <Show when={state.pane === "preview"}>
+          <PreviewPane />
         </Show>
         <Show when={state.pane === "changes"}>
           <ChangesPane />

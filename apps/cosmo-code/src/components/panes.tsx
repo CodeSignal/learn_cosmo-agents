@@ -1,6 +1,10 @@
 // The right column's panes. Each has the original's frame: its own controls, then Open in new window
 // (not here), Expand (Ctrl+Shift+\) and Close (Ctrl+\).
-// · Plan: the proposed plan. · Background tasks (S32): from View options.
+// · Plan: the proposed plan.
+// · Background tasks (S32, S34c): the session's subagents and background commands; a subagent opens
+//   to its conversation (‹ back to the list).
+// · Preview (S40): workspace files (pages, images, PDFs, media), sandboxed. Browsing websites and
+//   dev servers need network the task's sandbox doesn't have.
 // · Changes (S25): the workspace's diff — "main → working tree" (All changes vs main, or
 //   Uncommitted changes) — one block per file with Open file; the file list on the side.
 // · Files (S39): the file tree with a filter, and the files you open, read-only.
@@ -13,15 +17,28 @@ import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { call } from "../engine"
 import { parseDiff, totals, type DiffFile } from "../diff"
+import { tasksOf, type BackgroundTask } from "../tasks"
+import { SubagentMessages } from "./transcript"
+import { modelName } from "./composer"
+import { prefs, setPref } from "../prefs"
 import {
+  activeSession,
+  clearTasks,
   closeFile,
   closePane,
+  closeSubagent,
   copy,
   FOLDER,
   onTerminal,
   openFileInPane,
+  openPreview,
+  openSubagent,
+  previewable,
+  reloadPreview,
   state,
+  stepPreview,
   toggleExpanded,
+  type RawMessage,
 } from "../store"
 
 const LOCKED = "Not available in this task"
@@ -79,20 +96,242 @@ export function PlanPane() {
   )
 }
 
+const STATUS_LABEL = { running: "Running", completed: "Completed", failed: "Failed", stopped: "Stopped" } as const
+
 export function TasksPane() {
+  const tasks = createMemo(() => {
+    const s = activeSession()
+    return s ? tasksOf(s).filter((t) => !state.clearedTasks[t.id]) : []
+  })
+  const finished = () => tasks().filter((t) => t.status !== "running")
+  const open = () => (state.subagent ? tasks().find((t) => t.toolUseId === state.subagent) ?? tasksOf(activeSession()!).find((t) => t.toolUseId === state.subagent) : undefined)
+  return (
+    <Show
+      when={open()}
+      fallback={
+        <PaneFrame
+          label="Background tasks"
+          head={
+            <>
+              <span class="cc-pane-title">Background tasks</span>
+              <button class="cc-icon-btn cc-small" aria-label="Clear finished tasks" title="Clear finished tasks" disabled={!finished().length} onClick={() => clearTasks(finished().map((t) => t.id))}>
+                <Icon name="list" size={15} />
+              </button>
+            </>
+          }
+        >
+          <Show when={tasks().length} fallback={<p class="cc-pane-empty">Background tasks appear here</p>}>
+            <ul class="cc-task-list">
+              <For each={tasks()}>
+                {(task) => (
+                  <li>
+                    <button class="cc-task-row" disabled={task.kind !== "agent" || !task.toolUseId} onClick={() => openSubagent(task.toolUseId!)}>
+                      <Show when={task.status === "running"} fallback={<Icon name={task.kind === "shell" ? "terminal" : "fork"} size={15} />}>
+                        <span class="cc-dots" aria-hidden="true" />
+                      </Show>
+                      <span class="cc-task-text">
+                        <span class="cc-ellipsis">{task.description}</span>
+                        <span class="cc-muted cc-ellipsis">{(task.status === "running" && task.summary) || task.subagentType || (task.kind === "shell" ? "Background command" : "")}</span>
+                      </span>
+                      <span class="cc-task-status" data-status={task.status}>
+                        {STATUS_LABEL[task.status]}
+                      </span>
+                    </button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </PaneFrame>
+      }
+    >
+      {(task) => <SubagentView task={task()} />}
+    </Show>
+  )
+}
+
+/** A subagent's conversation: its prompt, the model it ran on, and what it did. Live messages come
+ * with the session; otherwise its transcript is read from the engine. */
+function SubagentView(props: { task: BackgroundTask }) {
+  const live = createMemo(() => (activeSession()?.messages ?? []).filter((m) => m.parent_tool_use_id === props.task.toolUseId))
+  const [stored] = createResource(
+    () => (live().length ? null : { sessionId: state.activeId, agentId: props.task.id, status: props.task.status }),
+    (k) =>
+      call<{ messages: RawMessage[] }>("session/subagent", { sessionId: k.sessionId, agentId: k.agentId })
+        .then((r) => r.messages)
+        .catch(() => [] as RawMessage[]),
+  )
+  const messages = () => (live().length ? live() : (stored() ?? []))
+  // The prompt shows as the bubble on top; the transcript starts after it.
+  const rest = () => messages().filter((m, i) => !(i === 0 && m.type === "user"))
+  const model = () => {
+    const id = messages().find((m) => m.type === "assistant")?.message?.model as string | undefined
+    return id ? modelName(id) : undefined
+  }
   return (
     <PaneFrame
       label="Background tasks"
       head={
         <>
-          <span class="cc-pane-title">Background tasks</span>
-          <button class="cc-icon-btn cc-small" aria-label="Clear finished tasks" disabled>
-            <Icon name="list" size={15} />
+          <button class="cc-icon-btn cc-small" aria-label="Back" onClick={closeSubagent}>
+            <Icon name="back" size={15} />
           </button>
+          <span class="cc-pane-title cc-ellipsis">{props.task.description}</span>
         </>
       }
     >
-      <p class="cc-pane-empty">Background tasks appear here</p>
+      <div class="cc-pane-body cc-subagent">
+        <Show when={props.task.prompt}>
+          <div class="cc-user">
+            <div class="cc-bubble">{props.task.prompt}</div>
+          </div>
+        </Show>
+        <Show when={model()}>
+          <p class="cc-subagent-model">
+            <span class="cc-muted">Model</span> {model()}
+          </p>
+        </Show>
+        <Show when={!stored.loading || live().length} fallback={<div class="cc-muted">Loading…</div>}>
+          <SubagentMessages messages={rest()} />
+        </Show>
+        <Show when={props.task.status === "running"}>
+          <div class="cc-working">
+            <span class="cc-dots" />
+            <span class="cc-sr">The subagent is working</span>
+          </div>
+        </Show>
+      </div>
+    </PaneFrame>
+  )
+}
+
+// ── Preview ─────────────────────────────────────────────────────────────────────────────────
+
+const IMAGE = /\.(png|jpe?g|gif|webp|avif|ico|bmp)$/i
+const VIDEO = /\.(mp4|webm)$/i
+const AUDIO = /\.(mp3|wav|ogg)$/i
+const PAGE = /\.(html?|svg)$/i
+const previewUrl = (path: string) => `${state.previewBase}${path.split("/").map(encodeURIComponent).join("/")}`
+
+export function PreviewPane() {
+  const current = () => state.preview.history[state.preview.at] as string | undefined
+  const [files] = createResource(
+    () => state.changesVersion + 1,
+    () => call<{ files: string[] }>("files/tree", {}).then((r) => r.files.filter(previewable)).catch(() => [] as string[]),
+  )
+  return (
+    <PaneFrame
+      label="Preview"
+      head={
+        <>
+          <Popover
+            trigger={(open, toggle) => (
+              <button class="cc-preview-address" aria-label="Servers & settings" aria-haspopup="menu" aria-expanded={open()} onClick={toggle}>
+                <Icon name="globe" size={15} />
+                <span class="cc-ellipsis">{current() ?? ""}</span>
+                <Icon name="chevronDown" size={12} />
+              </button>
+            )}
+          >
+            {(close) => (
+              <MenuList
+                close={close}
+                items={[
+                  { heading: "Workspace files" },
+                  ...((files() ?? []).length
+                    ? (files() ?? []).slice(0, 40).map((path) => ({ label: path, checked: path === current(), onSelect: () => openPreview(path) }))
+                    : [{ label: "No pages, images or PDFs yet", disabled: true }]),
+                  { separator: true },
+                  { label: "Detect dev server", locked: LOCKED },
+                ]}
+              />
+            )}
+          </Popover>
+          <div class="cc-grow" />
+          <button class="cc-icon-btn cc-small" aria-label="Go back" disabled={state.preview.at <= 0} onClick={() => stepPreview(-1)}>
+            <Icon name="back" size={15} />
+          </button>
+          <button class="cc-icon-btn cc-small" aria-label="Go forward" disabled={state.preview.at >= state.preview.history.length - 1} onClick={() => stepPreview(1)}>
+            <Icon name="forward" size={15} />
+          </button>
+          <button class="cc-icon-btn cc-small" aria-label="Select an element or annotate" aria-keyshortcuts="Control+Shift+S" aria-pressed="false" title={LOCKED} disabled>
+            <Icon name="pointer" size={15} />
+          </button>
+          <button class="cc-icon-btn cc-small" aria-label="Reload" aria-keyshortcuts="F5" disabled={!current()} onClick={reloadPreview}>
+            <Icon name="rewind" size={15} />
+          </button>
+          <Popover
+            align="end"
+            trigger={(_, toggle) => (
+              <button class="cc-icon-btn cc-small" aria-label="Preview settings" aria-haspopup="menu" onClick={toggle}>
+                <Icon name="moreVertical" size={15} />
+              </button>
+            )}
+          >
+            {(close) => (
+              <MenuList
+                close={close}
+                items={[
+                  { label: "Auto-open files Claude writes", checked: prefs.autoOpen, checkable: true, onSelect: () => setPref("autoOpen", !prefs.autoOpen) },
+                  { label: "Show in Files", disabled: !current(), onSelect: () => openFileInPane(current()!) },
+                ]}
+              />
+            )}
+          </Popover>
+        </>
+      }
+    >
+      <Show
+        when={state.previewBase && current()}
+        fallback={
+          <div class="cc-pane-empty cc-preview-empty">
+            <Icon name="globe" size={28} />
+            <strong>Preview files</strong>
+            <span>Open a page, image, or PDF from the workspace, or ask Claude to make one. Browsing websites isn’t available in this task.</span>
+            <span class="cc-preview-dev">
+              Preview your app instead?{" "}
+              <button class="cc-link-btn" disabled title={LOCKED}>
+                Detect dev server
+              </button>
+            </span>
+          </div>
+        }
+      >
+        {(path) => (
+          <div class="cc-preview-body">
+            {/* Keyed on the path and Reload, so either loads the file again. */}
+            <For each={[`${path()}#${state.preview.reload}`]}>
+              {() => (
+                <Show
+                  when={IMAGE.test(path()) || VIDEO.test(path()) || AUDIO.test(path())}
+                  fallback={
+                    <iframe
+                      class="cc-preview-frame"
+                      title={`Preview of ${path()}`}
+                      src={previewUrl(path())}
+                      // Pages run in an opaque origin: no access to this app, its storage or its APIs.
+                      sandbox={PAGE.test(path()) ? "allow-scripts allow-forms allow-modals" : undefined}
+                      referrerPolicy="no-referrer"
+                    />
+                  }
+                >
+                  <div class="cc-preview-media">
+                    <Show when={IMAGE.test(path())}>
+                      <img src={previewUrl(path())} alt={path()} />
+                    </Show>
+                    <Show when={VIDEO.test(path())}>
+                      <video src={previewUrl(path())} controls />
+                    </Show>
+                    <Show when={AUDIO.test(path())}>
+                      <audio src={previewUrl(path())} controls />
+                    </Show>
+                  </div>
+                </Show>
+              )}
+            </For>
+          </div>
+        )}
+      </Show>
     </PaneFrame>
   )
 }
@@ -422,6 +661,13 @@ export function FilesPane() {
                 )}
               </For>
             </div>
+            <Show when={previewable(state.openFile!)}>
+              <div class="cc-file-actions">
+                <button class="cc-btn" onClick={() => openPreview(state.openFile!)}>
+                  <Icon name="play" size={13} /> Open in Preview
+                </button>
+              </div>
+            </Show>
             <FileView path={state.openFile!} />
           </Show>
         </div>

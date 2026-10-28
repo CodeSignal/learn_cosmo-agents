@@ -4,13 +4,15 @@
 // rows, then the reply streaming in, the card the engine is waiting on, and the working indicator.
 // After a rewind, "Rewound here · Undo rewind" ends the conversation until the next message.
 // The session's transcript view decides what starts open: Thinking opens thinking rows, Verbose
-// tool rows too.
+// tool rows too. An agent row ("Ran agent …") opens its subagent's conversation in the Background
+// tasks pane.
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { structuredPatch } from "diff"
 import { Icon } from "../icons"
 import { viewOf, type TranscriptView } from "../prefs"
-import { copy, dismiss, fork, FOLDER, openFileInPane, requestFor, rewindTo, send, state, undoRewind, WORKSPACE, type RawMessage, type Session } from "../store"
+import { tasksOf } from "../tasks"
+import { copy, dismiss, fork, FOLDER, openFileInPane, openSubagent, requestFor, rewindTo, send, state, undoRewind, WORKSPACE, type RawMessage, type Session } from "../store"
 import { editStats, isEdit, outcome, resultText, rowLabel, type ToolResult, type ToolUse } from "../tools"
 import { RequestCard } from "./cards"
 
@@ -21,7 +23,7 @@ type Item =
   | { kind: "tool"; key: string; tool: ToolUse }
 
 /** Text the engine adds around a prompt (reminders, command wrappers) isn't the candidate's. */
-const isContext = (text: string) => /^\s*<(system-reminder|local-command|command-name|command-message|command-args)/.test(text)
+const isContext = (text: string) => /^\s*<(system-reminder|local-command|command-name|command-message|command-args|task-notification)/.test(text)
 
 function userText(content: unknown): string | null {
   if (typeof content === "string") return isContext(content) ? null : content
@@ -309,6 +311,9 @@ export function Transcript(props: { session: Session }) {
               <Match when={item.kind === "tool" && item !== pending() && item}>
                 {(t) => (
                   <Switch fallback={<ToolRow tool={t().tool} result={flat().results.get(t().tool.id)} />}>
+                    <Match when={t().tool.name === "Agent" || t().tool.name === "Task"}>
+                      <AgentRow tool={t().tool} result={flat().results.get(t().tool.id)} session={props.session} />
+                    </Match>
                     <Match when={t().tool.name === "AskUserQuestion"}>
                       <AnsweredQuestions tool={t().tool} result={flat().results.get(t().tool.id)} />
                     </Match>
@@ -348,6 +353,60 @@ export function Transcript(props: { session: Session }) {
         <For each={state.queued[props.session.id]}>{(text) => <div class="cc-user cc-queued"><div class="cc-bubble">{text}</div></div>}</For>
       </Show>
     </div>
+  )
+}
+
+/** "Ran agent · <description>": opens the subagent's conversation. A subagent may run on in the
+ * background after its call returns; the row shows it working until it ends. */
+function AgentRow(props: { tool: ToolUse; result?: ToolResult; session: Session }) {
+  const task = () => tasksOf(props.session).find((t) => t.toolUseId === props.tool.id)
+  const running = () => !props.result || task()?.status === "running"
+  const end = () => outcome(props.tool, props.result) ?? (task()?.status === "failed" ? "failed" : task()?.status === "stopped" ? "stopped" : null)
+  const description = () => String(props.tool.input?.description ?? "Agent")
+  return (
+    <section class="cc-tool">
+      <div class="cc-tool-head">
+        <button class="cc-tool-row cc-agent-row" title={description()} onClick={() => openSubagent(props.tool.id)}>
+          <Show when={running()}>
+            <span class="cc-dots" aria-label="running" />
+          </Show>
+          <span class="cc-tool-label">{running() ? "Running agent" : "Ran agent"}</span>
+          <span class="cc-tool-target">{description()}</span>
+          <Show when={end()}>
+            {(e) => <span class="cc-tool-end" data-kind={e()}>{{ blocked: "Blocked", denied: "Denied", failed: "Failed", stopped: "Stopped" }[e()]}</span>}
+          </Show>
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/** A subagent's conversation (the Background tasks pane): its replies, thinking and tool rows. */
+export function SubagentMessages(props: { messages: RawMessage[] }) {
+  const flat = createMemo(() => flatten(props.messages.map((m) => ({ ...m, parent_tool_use_id: null }))))
+  return (
+    <For each={flat().items}>
+      {(item) => (
+        <Switch>
+          <Match when={item.kind === "user" && item}>
+            {(u) => (
+              <div class="cc-user">
+                <div class="cc-bubble">{u().text}</div>
+              </div>
+            )}
+          </Match>
+          <Match when={item.kind === "text" && item}>
+            {(t) => (
+              <div class="cc-reply">
+                <Markdown class="cc-markdown" text={t().text} />
+              </div>
+            )}
+          </Match>
+          <Match when={item.kind === "thinking" && item}>{(t) => <ThinkingRow text={t().text} />}</Match>
+          <Match when={item.kind === "tool" && item}>{(t) => <ToolRow tool={t().tool} result={flat().results.get(t().tool.id)} />}</Match>
+        </Switch>
+      )}
+    </For>
   )
 }
 

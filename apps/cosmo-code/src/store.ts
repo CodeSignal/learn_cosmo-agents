@@ -4,9 +4,10 @@
 import { createStore, produce } from "solid-js/store"
 import { call, EngineError, listen, respond, type EngineMessage } from "./engine"
 import { prefs } from "./prefs"
+import { kindOf, statusOf, type BackgroundTask } from "./tasks"
 
 export const WORKSPACE = import.meta.env.VITE_WORKSPACE ?? "/usercode/FILESYSTEM"
-export type Pane = "plan" | "changes" | "terminal" | "files" | "tasks"
+export type Pane = "plan" | "changes" | "terminal" | "files" | "tasks" | "preview"
 export type SettingsPage = "general" | "privacy" | "usage" | "code" | "cowork" | "import" | "system" | "skills" | "connectors" | "plugins"
 export const FOLDER = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
 
@@ -35,6 +36,8 @@ export type Session = {
   context: { percentage: number; totalTokens: number; maxTokens: number } | null
   /** After "Rewind to here": the message the conversation was cut before (Undo brings it back). */
   rewound: string | null
+  /** Background tasks as the engine reported them live, by task id (history has the rest). */
+  tasks: Record<string, Partial<BackgroundTask>>
 }
 
 export type Command = { name: string; description: string; argumentHint?: string }
@@ -58,6 +61,12 @@ const [state, setState] = createStore({
   /** The pane in the right column (else the session rail), and whether it fills the window. */
   pane: null as Pane | null,
   paneExpanded: false,
+  /** The Background tasks pane's subagent (its Agent call), when one is open. */
+  subagent: null as string | null,
+  /** Finished tasks the candidate cleared from the Background tasks pane. */
+  clearedTasks: {} as Record<string, true>,
+  /** The Preview pane: workspace files shown (Back / Forward), and a counter Reload bumps. */
+  preview: { history: [] as string[], at: -1, reload: 0 },
   /** Files open in the Files pane, and the one shown. */
   openFiles: [] as string[],
   openFile: null as string | null,
@@ -67,6 +76,8 @@ const [state, setState] = createStore({
   composerText: null as string | null,
   /** Whether the task gives the candidate a terminal (the server's /api/session). */
   terminal: false,
+  /** Where the server serves workspace files for the Preview pane (the server's /api/session). */
+  previewBase: null as string | null,
   /** Whether the task runs commands in its sandbox (the server's /api/session). */
   sandbox: false,
   /** The Settings modal's page, when open; and the keyboard shortcuts dialog. */
@@ -127,6 +138,7 @@ const blankSession = (id: string, title: string): Session => ({
   ended: null,
   context: null,
   rewound: null,
+  tasks: {},
 })
 
 // ── engine events ──────────────────────────────────────────────────────────────────────────
@@ -169,6 +181,24 @@ function onSdkMessage(sessionId: string, m: any) {
         setState("sessions", sessionId, { mode: m.permissionMode ?? state.sessions[sessionId]!.mode, model: state.sessions[sessionId]!.model ?? null })
       } else if (m.subtype === "informational" && m.level === "warning") {
         showToast(m.content)
+      } else if (m.subtype === "task_started") {
+        setState("sessions", sessionId, "tasks", m.task_id, {
+          id: m.task_id,
+          toolUseId: m.tool_use_id,
+          kind: kindOf(m.task_type),
+          description: m.description,
+          subagentType: m.subagent_type,
+          status: "running",
+        })
+      } else if (m.subtype === "task_updated" && state.sessions[sessionId]!.tasks[m.task_id]) {
+        setState("sessions", sessionId, "tasks", m.task_id, {
+          ...(m.patch?.status ? { status: statusOf(m.patch.status) } : {}),
+          ...(m.patch?.description ? { description: m.patch.description } : {}),
+        })
+      } else if (m.subtype === "task_progress" && m.summary && state.sessions[sessionId]!.tasks[m.task_id]) {
+        setState("sessions", sessionId, "tasks", m.task_id, "summary", m.summary)
+      } else if (m.subtype === "task_notification") {
+        setState("sessions", sessionId, "tasks", m.task_id, { id: m.task_id, toolUseId: m.tool_use_id, status: statusOf(m.status) })
       }
       return
     case "stream_event": {
@@ -195,6 +225,7 @@ function onSdkMessage(sessionId: string, m: any) {
         sessionId,
         produce((s) => {
           if (m.uuid && s.messages.some((x) => x.uuid === m.uuid)) return
+          if (m.type === "user" && !m.parent_tool_use_id && sessionId === state.activeId) autoOpen(s.messages, m)
           s.messages.push(m)
           if (m.type === "assistant") s.streaming = null
           s.lastModified = Date.now()
@@ -266,7 +297,7 @@ export function start() {
   listen(onMessage)
   void fetch("/api/session")
     .then((res) => (res.ok ? res.json() : undefined))
-    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", sandbox: !!session?.sandbox }))
+    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", sandbox: !!session?.sandbox, previewBase: session?.preview ?? null }))
     .catch(() => setState("terminal", false))
 }
 
@@ -319,7 +350,7 @@ export async function refreshSessions() {
 }
 
 export async function openSession(id: string) {
-  setState({ activeId: id, plan: null, pane: state.pane === "plan" ? null : state.pane })
+  setState({ activeId: id, plan: null, pane: state.pane === "plan" ? null : state.pane, subagent: state.activeId === id ? state.subagent : null })
   const s = state.sessions[id]
   if (!s || s.loaded) return
   try {
@@ -332,7 +363,7 @@ export async function openSession(id: string) {
 }
 
 export function newSession() {
-  setState({ activeId: null, plan: null, pane: state.pane === "plan" ? null : state.pane })
+  setState({ activeId: null, plan: null, pane: state.pane === "plan" ? null : state.pane, subagent: null })
 }
 
 async function refreshContext(sessionId: string) {
@@ -491,6 +522,54 @@ export function toggleExpanded() {
 }
 
 /** Open a workspace file (relative path) in the Files pane. */
+export function openSubagent(toolUseId: string) {
+  setState({ pane: "tasks", subagent: toolUseId, paneExpanded: false })
+}
+
+export function closeSubagent() {
+  setState("subagent", null)
+}
+
+export function clearTasks(ids: string[]) {
+  setState("clearedTasks", produce((c) => ids.forEach((id) => (c[id] = true))))
+}
+
+// Files the Preview pane shows (by extension), as the server's preview serves them.
+const PREVIEWABLE = /\.(html?|svg|png|jpe?g|gif|webp|avif|ico|bmp|pdf|mp4|webm|mp3|wav|ogg)$/i
+export const previewable = (path: string) => PREVIEWABLE.test(path)
+
+/** Show a workspace file (relative path) in the Preview pane; showing it again reloads it. */
+export function openPreview(path: string) {
+  const { history, at } = state.preview
+  if (history[at] === path) setState("preview", "reload", (n) => n + 1)
+  else setState("preview", { history: [...history.slice(0, at + 1), path], at: at + 1 })
+  setState({ pane: "preview", paneExpanded: state.pane === "preview" && state.paneExpanded })
+}
+
+export function stepPreview(by: 1 | -1) {
+  const at = state.preview.at + by
+  if (at >= 0 && at < state.preview.history.length) setState("preview", "at", at)
+}
+
+export function reloadPreview() {
+  setState("preview", "reload", (n) => n + 1)
+}
+
+/** Settings → Auto-open files Claude writes: an HTML page, image, PDF or video Claude just wrote or
+ * edited opens in the Preview pane. */
+function autoOpen(messages: RawMessage[], m: any) {
+  if (!prefs.autoOpen || !Array.isArray(m.message?.content)) return
+  for (const b of m.message.content) {
+    if (b?.type !== "tool_result" || b.is_error) continue
+    const call = messages.findLast((x) => x.type === "assistant" && Array.isArray(x.message?.content) && x.message.content.some((c: any) => c.id === b.tool_use_id))
+    const tool = call?.message.content.find((c: any) => c.id === b.tool_use_id)
+    const file = String(tool?.input?.file_path ?? "")
+    if (["Write", "Edit", "MultiEdit"].includes(tool?.name) && file.startsWith(`${WORKSPACE}/`) && previewable(file)) {
+      queueMicrotask(() => openPreview(file.slice(WORKSPACE.length + 1)))
+    }
+  }
+}
+
 export function openFileInPane(path: string) {
   setState({ pane: "files", openFile: path, openFiles: state.openFiles.includes(path) ? state.openFiles : [...state.openFiles, path] })
 }

@@ -1895,3 +1895,112 @@ html[data-motion="reduced"] *::after {
     flex-wrap: wrap;
   }
 }
+
+/* Background tasks (S32) and the subagent pane (S34c) */
+.cc-task-list {
+  margin: 0;
+  padding: 4px 8px;
+  list-style: none;
+}
+.cc-task-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+.cc-task-row:hover:not(:disabled) {
+  background: var(--v2-overlay-simple-overlay-hover);
+}
+.cc-task-row:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.cc-task-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.cc-task-text .cc-muted {
+  font-size: 12px;
+}
+.cc-task-status {
+  font-size: 12px;
+  color: var(--v2-text-text-muted);
+}
+.cc-task-status[data-status="failed"] {
+  color: var(--v2-state-fg-danger);
+}
+.cc-agent-row .cc-tool-target {
+  text-decoration: underline transparent;
+  text-underline-offset: 3px;
+}
+.cc-agent-row:hover .cc-tool-target {
+  text-decoration-color: currentColor;
+}
+.cc-subagent .cc-user {
+  margin-top: 8px;
+}
+.cc-subagent-model {
+  margin: 16px 0 8px;
+  font-size: 13px;
+}
+
+/* Preview (S40) */
+.cc-pane-head > .cc-popover-anchor:has(.cc-preview-address) {
+  min-width: 0;
+  max-width: 60%;
+}
+.cc-preview-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--v2-text-text-muted);
+}
+.cc-preview-address:hover {
+  background: var(--v2-overlay-simple-overlay-hover);
+}
+.cc-preview-empty {
+  max-width: 320px;
+  margin: 0 auto;
+  text-align: center;
+}
+.cc-preview-dev {
+  margin-top: 10px;
+}
+.cc-preview-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.cc-preview-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+.cc-preview-media {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+}
+.cc-preview-media img,
+.cc-preview-media video {
+  max-width: 100%;
+  max-height: 100%;
+}
+.cc-file-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 12px 0;
+}

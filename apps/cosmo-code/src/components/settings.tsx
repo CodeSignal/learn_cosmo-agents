@@ -299,8 +299,7 @@ const PAGES: Partial<Record<SettingsPage, Section[]>> = {
         {
           label: "Auto-open files Claude writes",
           description: "HTML, images, PDFs, and videos Claude writes open in the Preview pane.",
-          control: { kind: "switch", value: () => false },
-          locked: NOT_HERE,
+          control: { kind: "switch", value: () => prefs.autoOpen, set: (v) => setPref("autoOpen", v) },
         },
         {
           label: "Keep cookies",

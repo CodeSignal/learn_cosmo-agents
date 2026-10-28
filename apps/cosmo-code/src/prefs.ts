@@ -21,6 +21,8 @@ const DEFAULTS = {
   textSize: "medium" as "small" | "medium" | "large",
   width: "narrow" as "narrow" | "medium" | "wide",
   transcriptView: "normal" as TranscriptView,
+  /** Cosmo Code → Browser: HTML, images, PDFs and videos Claude writes open in Preview. */
+  autoOpen: true,
   /** A session's own view (its Transcript view menu), by session id. */
   sessionViews: {} as Record<string, TranscriptView>,
 }

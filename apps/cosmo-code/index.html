@@ -3,6 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Frames (the Preview pane) show this app's own pages only: a previewed page can't navigate off to another site. -->
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'self'" />
     <title>Cosmo Code</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
