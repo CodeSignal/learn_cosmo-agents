@@ -110,6 +110,7 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
     active: state.active,
     allowSwitch: policy.allowSwitch,
     terminal: policy.terminal,
+    sandbox: policy.sandbox,
   });
 
   const server = http.createServer(async (req, res) => {

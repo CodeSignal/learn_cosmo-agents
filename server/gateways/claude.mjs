@@ -42,7 +42,7 @@ const PARAMS = {
   initialize: [],
   "session/list": [],
   "session/read": ["sessionId"],
-  "session/send": ["sessionId", "text", "model", "permissionMode", "effort"],
+  "session/send": ["sessionId", "text", "model", "permissionMode", "effort", "instructions"],
   "session/interrupt": ["sessionId"],
   "session/configure": ["sessionId", "model", "permissionMode", "effort"],
   "session/rename": ["sessionId", "title"],
@@ -69,6 +69,7 @@ const REQUIRED = {
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TEXT = 200_000;
+const MAX_INSTRUCTIONS = 4000;
 
 /** A path inside the workspace, given relative to it (no "..", not absolute). */
 const relativePath = (p) => typeof p === "string" && p.length > 0 && p.length <= 1024 && !p.startsWith("/") && !p.split("/").includes("..") && !p.includes("\0");
@@ -94,6 +95,7 @@ export function checkParams(method, params = {}, ctx) {
   if (p.permissionMode !== undefined && !ctx.modes.includes(p.permissionMode)) return { reason: "the permission mode" };
   if (p.effort !== undefined && !EFFORTS.includes(p.effort)) return { reason: "the effort" };
   if (method === "session/send" && (typeof p.text !== "string" || !p.text.trim() || p.text.length > MAX_TEXT)) return { reason: "this message" };
+  if (method === "session/send" && p.instructions !== undefined && (typeof p.instructions !== "string" || p.instructions.length > MAX_INSTRUCTIONS)) return { reason: "these instructions" };
   if (p.title !== undefined && (typeof p.title !== "string" || p.title.length > 200)) return { reason: "the title" };
   for (const flag of ["archived", "dryRun"]) if (p[flag] !== undefined && typeof p[flag] !== "boolean") return { reason: `the "${flag}" option` };
   if (p.query !== undefined && (typeof p.query !== "string" || p.query.length > 200)) return { reason: "the search" };

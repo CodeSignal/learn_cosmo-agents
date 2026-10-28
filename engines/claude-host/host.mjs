@@ -137,6 +137,9 @@ function openSession(sessionId, settings, { resume = false, resumeAt } = {}) {
     prompt: input(),
     options: {
       ...base(),
+      // Claude Code's own system prompt, as in the desktop app, with the candidate's instructions
+      // (Settings → General) for a new session; a resumed session keeps the prompt it recorded.
+      systemPrompt: { type: "preset", preset: "claude_code", ...(settings.instructions ? { append: settings.instructions } : {}) },
       ...(resume ? { resume: sessionId, ...(resumeAt ? { resumeSessionAt: resumeAt } : {}) } : { sessionId }),
       ...(settings.model ? { model: settings.model } : {}),
       ...(settings.permissionMode ? { permissionMode: settings.permissionMode } : {}),
@@ -246,6 +249,7 @@ function pick(params = {}) {
     if (!EFFORTS.has(params.effort)) throw rpcError(-32602, "Unsupported effort");
     settings.effort = params.effort;
   }
+  if (typeof params.instructions === "string" && params.instructions.trim()) settings.instructions = params.instructions.slice(0, 4000);
   return settings;
 }
 
