@@ -28,7 +28,9 @@ import {
   FOLDER,
   fork,
   newSession,
+  closePane,
   openFileInPane,
+  openHelp,
   openPalette,
   openPreview,
   openSession,
@@ -40,6 +42,7 @@ import {
   sessionOrder,
   showToast,
   state,
+  stepSession,
   togglePane,
   toggleRail,
   toggleShortcuts,
@@ -161,6 +164,82 @@ function Toggle(props: { icon: IconName; label: string; shortcut?: string; press
   )
 }
 
+/** The app menu (S15, the title bar's Menu): File, Edit, View, Go and Help. Window and app
+ * features a browser page doesn't have (zoom, full screen, split view, logs) are locked. */
+function appMenu(): MenuItem[] {
+  const pane = (p: Parameters<typeof togglePane>[0]) => () => togglePane(p)
+  return [
+    {
+      label: "File",
+      submenu: [
+        { label: "New Session", shortcut: "Ctrl+N", onSelect: newSession },
+        { separator: true },
+        { label: "Settings…", shortcut: "Ctrl+,", onSelect: () => openSettings() },
+        { separator: true },
+        { label: "Close Pane", shortcut: "Ctrl+\\", disabled: !state.pane, onSelect: closePane },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { label: "Undo", shortcut: "Ctrl+Z", onSelect: () => document.execCommand("undo") },
+        { label: "Redo", shortcut: "Ctrl+Shift+Z", onSelect: () => document.execCommand("redo") },
+        { separator: true },
+        { label: "Cut", shortcut: "Ctrl+X", onSelect: () => document.execCommand("cut") },
+        { label: "Copy", shortcut: "Ctrl+C", onSelect: () => document.execCommand("copy") },
+        { label: "Paste", shortcut: "Ctrl+V", disabled: true },
+        { label: "Select All", shortcut: "Ctrl+A", onSelect: () => document.execCommand("selectAll") },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { label: "Command Palette…", shortcut: "Ctrl+K", onSelect: () => openPalette() },
+        { label: "Sidebar", shortcut: "Ctrl+B", checked: state.sidebar, onSelect: toggleSidebar },
+        { label: "Terminal", shortcut: "Ctrl+`", checked: state.pane === "terminal", onSelect: pane("terminal") },
+        { label: "Changes", shortcut: "Ctrl+Shift+D", checked: state.pane === "changes", disabled: !activeSession(), onSelect: pane("changes") },
+        { label: "Preview", shortcut: "Ctrl+Shift+P", checked: state.pane === "preview", disabled: !activeSession(), onSelect: pane("preview") },
+        { label: "Files", shortcut: "Ctrl+Shift+F", checked: state.pane === "files", onSelect: pane("files") },
+        { label: "Side Chat", shortcut: "Ctrl+;", checkable: true, locked: LOCKED },
+        { label: "Session Rail", checked: !!activeSession() && state.rail && !state.pane, disabled: !activeSession(), onSelect: toggleRail },
+        { label: "Close Pane", disabled: !state.pane, onSelect: closePane },
+        { label: "Split View", locked: LOCKED },
+        { separator: true },
+        { label: "Actual Size", locked: LOCKED },
+        { label: "Zoom In", locked: LOCKED },
+        { label: "Zoom Out", locked: LOCKED },
+        { label: "Full Screen", shortcut: "F11", locked: LOCKED },
+        { separator: true },
+        { label: "Reload", shortcut: "F5", onSelect: () => location.reload() },
+      ],
+    },
+    {
+      label: "Go",
+      submenu: [
+        { label: "Back", disabled: true },
+        { label: "Forward", disabled: true },
+        { separator: true },
+        { label: "Next Session", shortcut: "Ctrl+Shift+]", onSelect: () => stepSession(1) },
+        { label: "Previous Session", shortcut: "Ctrl+Shift+[", onSelect: () => stepSession(-1) },
+        { label: "Search…", shortcut: "Ctrl+Shift+K", onSelect: () => openPalette() },
+      ],
+    },
+    {
+      label: "Help",
+      submenu: [
+        { label: "Cosmo Code Help", shortcut: "F1", onSelect: openHelp },
+        { label: "Keyboard Shortcuts", shortcut: "Ctrl+/", onSelect: toggleShortcuts },
+        {
+          label: "Troubleshooting",
+          submenu: ["Show Logs in File Manager", "Copy Installation ID", "Generate Diagnostic Report", "Clear Cache and Restart", "Reset App Data…"].map((label) => ({ label, locked: LOCKED })),
+        },
+        { label: "Get Support", locked: LOCKED },
+        { label: "About Cosmo Code", onSelect: () => showToast(`Cosmo Code ${import.meta.env.VITE_VERSION ?? ""}`.trim()) },
+      ],
+    },
+  ]
+}
+
 export function TitleBar() {
   // Renaming starts from the title, its menu, or /rename.
   const renaming = () => state.renamingTitle
@@ -169,9 +248,15 @@ export function TitleBar() {
   return (
     <header class="cc-titlebar">
       <div class="cc-titlebar-left" data-collapsed={state.sidebar ? undefined : ""}>
-        <button class="cc-icon-btn" aria-label="Menu" onClick={soon}>
-          <Icon name="menu" size={17} />
-        </button>
+        <Popover
+          trigger={(open, toggle) => (
+            <button class="cc-icon-btn" aria-label="Menu" aria-haspopup="menu" aria-expanded={open()} onClick={toggle}>
+              <Icon name="menu" size={17} />
+            </button>
+          )}
+        >
+          {(close) => <MenuList close={close} items={appMenu()} />}
+        </Popover>
         <button class="cc-icon-btn" aria-label={state.sidebar ? "Hide sidebar" : "Show sidebar"} aria-keyshortcuts="Control+B" onClick={toggleSidebar}>
           <Icon name="sidebar" size={17} />
         </button>

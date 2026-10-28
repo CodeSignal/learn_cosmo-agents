@@ -18,25 +18,16 @@ import {
   closePane,
   newSession,
   openPalette,
-  openSession,
+  openHelp,
   openSettings,
-  sessionOrder,
   state,
+  stepSession,
   toggleExpanded,
   togglePane,
   reloadPreview,
   toggleShortcuts,
   toggleSidebar,
 } from "./store"
-
-/** The next (or previous) session in the sidebar's order, from the open one. */
-function stepSession(by: 1 | -1) {
-  const order = sessionOrder()
-  if (!order.length) return
-  const at = order.findIndex((s) => s.id === state.activeId)
-  const next = order[(at + by + order.length) % order.length]!
-  void openSession(next.id)
-}
 
 /** F6 / Shift+F6: focus the next (previous) page area — sidebar, the prompt, the right column. */
 function focusArea(by: 1 | -1) {
@@ -55,9 +46,10 @@ function focusArea(by: 1 | -1) {
 // Ctrl+Shift+P preview (F5 reloads it), Ctrl+K (and Ctrl+Shift+K) the command palette,
 // Ctrl+Shift+M / Ctrl+Shift+I the mode and model menus, Ctrl+, settings, Ctrl+/ shortcuts, Ctrl+O
 // transcript view, Ctrl+Shift+] / [ (Ctrl+Tab) next and previous session, Ctrl+Shift+Backspace
-// archive, F6 page areas.
+// archive, F6 page areas, F1 help.
 document.addEventListener("keydown", (e) => {
   if (e.key === "F6" && !e.ctrlKey && !e.altKey) return void (e.preventDefault(), focusArea(e.shiftKey ? -1 : 1))
+  if (e.key === "F1" && !e.ctrlKey && !e.altKey) return void (e.preventDefault(), openHelp())
   if (e.key === "F5" && state.pane === "preview" && !e.ctrlKey) return void (e.preventDefault(), reloadPreview())
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return
   const key = e.key.toLowerCase()

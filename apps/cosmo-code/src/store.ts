@@ -640,6 +640,19 @@ export async function copy(text: string, what: string) {
   }
 }
 
+/** The next (or previous) session in the sidebar's order, from the open one. */
+export function stepSession(by: 1 | -1) {
+  const order = sessionOrder()
+  if (!order.length) return
+  const at = order.findIndex((s) => s.id === state.activeId)
+  void openSession(order[(at + by + order.length) % order.length]!.id)
+}
+
+/** The simulation's help, which the surrounding shell shows (instead of the vendor's site). */
+export function openHelp() {
+  window.parent?.postMessage({ type: "agentsim:help" }, location.origin)
+}
+
 export function openPalette(mode: "recents" | "actions" = "recents") {
   setState("palette", mode)
 }
