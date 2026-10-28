@@ -5,8 +5,12 @@ A bespoke simulation that gives a learner or candidate an AI coding agent inside
 agent engine (OpenCode, Codex and Claude Code respectively), with every model request going
 through the platform's LLM proxy and the engine locked down for the task.
 
-> Status: foundation only. The shell, policy layer, supervisor and checks are in place; the
-> agent UIs land next (OpenCosmo first).
+Each UI follows its original app's structure and behaviour closely, so a learner who knows the
+original needs no time to get used to it, with the platform's design system and the user's light
+or dark theme.
+
+> Status: all three agents work end to end on their engines. Remaining: release packaging and
+> the platform's task template.
 
 ## How it fits together
 
@@ -16,11 +20,20 @@ preview iframe (:3000)
        └─ /agents/<agent>/   the agent's UI (one frame per agent, kept alive on switch)
 server (:3000, user agentsim)
   ├─ /api/session, /api/switch          the task's agents and the active one
+  ├─ /api/workspace/diff, …/preview/    the workspace's changes; files for a UI's preview
   ├─ /engine/<agent>/*                  that engine's gateway: allowlist in, refusals logged
-  └─ event log                          switches, blocked attempts
+  └─ event log                          turns, switches, permission answers, blocked attempts
+engines (session user)
+  ├─ opencode serve                     behind a filtering HTTP proxy
+  ├─ codex app-server                   behind a JSON-RPC method allowlist
+  └─ Claude Agent SDK host              behind a JSON-RPC method allowlist
 root supervisor                         keeps the server and engines running, evicts squatters
 apply-policy (root, once)               task config -> root-owned engine policies
 ```
+
+Requests that change something are refused when the browser marks them as coming from another
+site or from a sandboxed page (a previewed file the agent wrote), so a page can't answer the
+agent's permission prompts.
 
 Three users matter:
 
@@ -88,6 +101,22 @@ the engines the task enables; `apply-policy` fails rather than let an engine byp
 `run_solution.sh` calls `/opt/agentsim/scripts/run_solution.sh`, which prints the setup, the
 event log and any extracted transcripts for evaluation.
 
+## Evaluation output
+
+`run_solution.sh` prints, in this order:
+
+1. `## SUMMARY`: the task's agents and settings, then per agent the number of turns and how
+   they ended, the tools used, permission answers, refusals by reason, tampering and engine
+   restarts. The same records always give the same lines.
+2. `## TURNS`: one line per prompt: time, agent, session, the prompt (JSON-quoted), how the turn
+   ended and the tools it used.
+3. The applied setup, the raw event log and the supervisor's log.
+4. Transcripts extracted into `.codesignal/<engine>/`, if the task's setup extracts them.
+
+Sections 1–3 come from files the session user can't change: each gateway records turns from the
+engine's own traffic. Extracted transcripts live in the workspace and can be edited, so grading
+that must hold up should rely on the first three.
+
 ## Development
 
 ```bash
@@ -96,7 +125,13 @@ npm install
 npm run start:dev      # Vite on :3000, API on :3001, policy from dev/agent-sim.json
 npm test               # unit tests (no Docker)
 npm run test:container # builds the image and runs the lockdown checks in a container
+sh scripts/build-ui.sh # builds the three agent UIs into dist-agents/ (Bun in Docker)
+sh scripts/dev-container.sh   # a local container with a stand-in LLM proxy, on :3010
 ```
+
+`PROVISIONER_BUNDLE=<path to a transcript extractor bundle> npm run test:container` also checks
+that transcripts of all three engines are extracted. [`docs/runbook.md`](docs/runbook.md) covers
+engine version bumps and re-checking the UIs against the originals.
 
 ## Licence
 
