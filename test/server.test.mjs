@@ -107,3 +107,50 @@ test("proxyHttp streams SSE through and injects upstream headers", async (t) => 
   const text = await (await fetch(base)).text();
   assert.equal(text, "data: Basic abc\n\ndata: done\n\n");
 });
+
+test("requests that change something are refused from other sites and sandboxed pages", async (t) => {
+  const { server, readEvents } = setup({ agents: ["cosmodex", "cosmo-code"], allowSwitch: true });
+  const base = await listen(server);
+  t.after(() => server.close());
+  const post = (headers) => fetch(`${base}/api/switch`, { method: "POST", headers, body: JSON.stringify({ agent: "cosmo-code" }) });
+  assert.equal((await post({ "sec-fetch-site": "cross-site" })).status, 403);
+  assert.equal((await post({ "sec-fetch-site": "same-site" })).status, 403);
+  assert.equal((await post({ origin: "null" })).status, 403);
+  assert.equal((await post({ "sec-fetch-site": "same-origin" })).status, 200);
+  assert.equal((await post({})).status, 200);
+  assert.equal((await fetch(`${base}/api/session`, { headers: { "sec-fetch-site": "cross-site" } })).status, 200);
+  assert.ok(readEvents().some((e) => e.type === "blocked" && e.action === "cross-site request"));
+});
+
+test("the preview serves workspace files sandboxed, and nothing outside the workspace or hidden", async (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "ws-"));
+  fs.mkdirSync(path.join(workspace, "site"));
+  fs.writeFileSync(path.join(workspace, "site", "index.html"), "<h1>hi</h1>");
+  fs.writeFileSync(path.join(workspace, "doc.pdf"), "%PDF-1.4");
+  fs.writeFileSync(path.join(workspace, "notes.py"), "print(1)");
+  fs.mkdirSync(path.join(workspace, ".codesignal"));
+  fs.writeFileSync(path.join(workspace, ".codesignal", "agent-sim.html"), "secret");
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "out-"));
+  fs.writeFileSync(path.join(outside, "x.html"), "outside");
+  fs.symlinkSync(path.join(outside, "x.html"), path.join(workspace, "link.html"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "events-"));
+  const server = createServer({ policy: validateTaskConfig({ agents: ["cosmo-code"] }).config, events: createEventLog(dir), workspace });
+  const base = await listen(server);
+  t.after(() => server.close());
+  const { preview } = await (await fetch(`${base}/api/session`)).json();
+  assert.match(preview, /^\/api\/workspace\/preview\/[0-9a-f]{32}\/$/);
+  // Without the session's token there's nothing to load.
+  assert.equal((await fetch(`${base}/api/workspace/preview/site/index.html`)).status, 404);
+  const get = (p) => fetch(`${base}${preview}${p}`);
+  const page = await get("site/index.html");
+  assert.equal(page.status, 200);
+  assert.equal(await page.text(), "<h1>hi</h1>");
+  assert.match(page.headers.get("content-security-policy"), /^sandbox allow-scripts/);
+  assert.match(page.headers.get("content-security-policy"), /connect-src 'none'/);
+  assert.equal(page.headers.get("x-content-type-options"), "nosniff");
+  const pdf = await get("doc.pdf");
+  assert.equal(pdf.headers.get("content-type"), "application/pdf");
+  assert.equal(pdf.headers.get("content-security-policy"), null);
+  assert.equal((await get("notes.py")).status, 415);
+  for (const p of ["link.html", ".codesignal/agent-sim.html", "..%2F..%2Fetc%2Fpasswd", "%2E%2E/x.html", "missing.html", "site"]) assert.equal((await get(p)).status, p === "site" ? 415 : 404, p);
+});

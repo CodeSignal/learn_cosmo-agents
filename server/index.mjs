@@ -1,6 +1,8 @@
 // The simulation server on :3000. Serves the shell and the agent UIs, exposes the session API,
-// and routes /engine/<agent>/* through that engine's gateway. Runs as its own user under the
-// root supervisor, so the agent (running as the session user) can neither kill nor replace it.
+// routes /engine/<agent>/* through that engine's gateway, and serves workspace files for an agent
+// UI's preview. Runs as its own user under the root supervisor, so the agent (running as the
+// session user) can neither kill nor replace it.
+import crypto from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -64,6 +66,98 @@ function sendFile(res, file) {
   });
 }
 
+/**
+ * Whether a request comes from another site or from a sandboxed frame (such as a preview of a
+ * file the agent wrote, whose origin is "null"). Requests that change something, and WebSocket
+ * upgrades, must come from the app's own pages: browsers mark the others (Sec-Fetch-Site, Origin);
+ * clients outside a browser (the tests, curl) send neither.
+ */
+export function crossSite(req) {
+  const site = req.headers["sec-fetch-site"];
+  if (site && site !== "same-origin" && site !== "none") return true;
+  return req.headers.origin === "null";
+}
+
+// What the preview serves, by extension, under /api/workspace/preview/<token>/. Pages run sandboxed
+// (an opaque origin) with no network: they can load other workspace files, but can't call the app's
+// APIs or reach other sites. Being sandboxed, their own files are cross-origin to them, so the
+// files can't be marked same-origin only; the token (given out by /api/session, which other sites
+// can't read) keeps other sites from loading workspace files, scripts included.
+const PREVIEW = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".ico": "image/x-icon",
+  ".bmp": "image/bmp",
+  ".pdf": "application/pdf",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+};
+const PREVIEW_MAX = 25 * 1024 * 1024;
+const PREVIEW_CSP =
+  "sandbox allow-scripts allow-forms allow-modals; default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; " +
+  "connect-src 'none'; form-action 'none'; frame-src 'self'; base-uri 'none'; object-src 'none'";
+// Folders the preview never serves (the repository's internals and the task's own files).
+const PREVIEW_HIDDEN = new Set([".git", ".codesignal"]);
+
+/** A workspace file for the preview: inside the workspace after links are followed, a regular file
+ * of a type the preview shows, not under a hidden folder. */
+async function servePreview(res, workspace, rel) {
+  const refuse = (status, text) => {
+    res.writeHead(status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+    res.end(text);
+  };
+  let parts;
+  try {
+    parts = rel.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return refuse(400, "Bad path");
+  }
+  if (!parts.length || parts.some((p) => p === ".." || p === "." || p.includes("/") || p.includes("\\") || PREVIEW_HIDDEN.has(p))) return refuse(404, "Not found");
+  const type = PREVIEW[path.extname(parts.at(-1)).toLowerCase()];
+  if (!type) return refuse(415, "This kind of file can't be previewed.");
+  let file;
+  try {
+    const root = await fs.promises.realpath(workspace);
+    file = await fs.promises.realpath(path.join(root, ...parts));
+    if (path.relative(root, file).startsWith("..") || path.relative(root, file).split(path.sep).some((p) => PREVIEW_HIDDEN.has(p))) return refuse(404, "Not found");
+    const st = await fs.promises.stat(file);
+    if (!st.isFile()) return refuse(404, "Not found");
+    if (st.size > PREVIEW_MAX) return refuse(413, "This file is too large to preview.");
+  } catch {
+    return refuse(404, "Not found");
+  }
+  const headers = {
+    "content-type": type,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "cross-origin-resource-policy": "cross-origin",
+  };
+  // PDFs open in the browser's own viewer, which a sandbox would disable; they run no page script.
+  if (type !== "application/pdf") headers["content-security-policy"] = PREVIEW_CSP;
+  res.writeHead(200, headers);
+  fs.createReadStream(file).pipe(res);
+}
+
 /** A file under `root`, or null when the path would leave it. */
 function within(root, rel) {
   const file = path.resolve(root, rel.replace(/^\/+/, ""));
@@ -95,6 +189,7 @@ function serveAgent(res, agent, rest) {
  * @param gateways map agent -> handler(req, res, subpath); agents without one answer 503
  */
 export function createServer({ policy, events, gateways = {}, workspace = process.env.WORKSPACE || "/usercode/FILESYSTEM" }) {
+  const previewBase = `/api/workspace/preview/${crypto.randomBytes(16).toString("hex")}/`;
   const state = { active: policy.default };
   events.record("session-start", { agents: policy.agents, active: state.active, allowSwitch: policy.allowSwitch });
 
@@ -111,17 +206,25 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
     allowSwitch: policy.allowSwitch,
     terminal: policy.terminal,
     sandbox: policy.sandbox,
+    preview: previewBase,
   });
 
   const server = http.createServer(async (req, res) => {
     const { pathname } = new URL(req.url, "http://localhost");
     try {
+      if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && crossSite(req)) {
+        events.record("blocked", { gateway: "shell", action: "cross-site request", method: req.method, path: pathname });
+        return sendJson(res, 403, { blocked: true, reason: "Requests from other sites or sandboxed pages are refused." });
+      }
       if (pathname === "/api/health") return sendJson(res, 200, { ok: true });
       if (pathname === "/api/session" && req.method === "GET") return sendJson(res, 200, session());
       if (pathname === "/api/workspace/diff" && req.method === "GET") {
         const scope = new URL(req.url, "http://localhost").searchParams.get("scope");
         if (!SCOPES.includes(scope)) return sendJson(res, 400, { error: `scope must be one of: ${SCOPES.join(", ")}` });
         return sendJson(res, 200, await workspaceDiff(workspace, scope));
+      }
+      if (pathname.startsWith(previewBase) && (req.method === "GET" || req.method === "HEAD")) {
+        return servePreview(res, workspace, pathname.slice(previewBase.length));
       }
       if (pathname === "/api/switch" && req.method === "POST") {
         let agent;
@@ -167,6 +270,10 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
 
   server.on("upgrade", (req, socket, head) => {
     const { pathname, search } = new URL(req.url, "http://localhost");
+    if (crossSite(req)) {
+      events.record("blocked", { gateway: "shell", action: "cross-site request", method: "upgrade", path: pathname });
+      return socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+    }
     const m = /^\/engine\/([a-z-]+)(\/.*)?$/.exec(pathname);
     const handler = m && policy.agents.includes(m[1]) ? gateways[m[1]] : null;
     if (!handler?.upgrade) return socket.end("HTTP/1.1 404 Not Found\r\n\r\n");
