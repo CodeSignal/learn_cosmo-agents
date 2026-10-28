@@ -45,6 +45,8 @@ export async function workspaceDiff(workspace, scope) {
   if (scope === "unstaged") return { scope, available: true, diff: (await git(workspace, ["diff", ...flags])).out };
   if (scope === "staged") return { scope, available: true, diff: (await git(workspace, ["diff", "--cached", ...flags])).out };
   const hasHead = (await git(workspace, ["rev-parse", "--verify", "-q", "HEAD"])).ok;
+  // The checked-out branch (none when HEAD is detached).
+  const branch = (await git(workspace, ["symbolic-ref", "--short", "-q", "HEAD"])).out.trim() || null;
   // "vs main": from where this branch left the base branch (main, else master); without one, HEAD.
   let from = hasHead ? "HEAD" : null;
   let base = null;
@@ -63,5 +65,5 @@ export async function workspaceDiff(workspace, scope) {
     ? (await git(workspace, ["diff", from, ...flags])).out
     : (await git(workspace, ["diff", "--cached", ...flags])).out + (await git(workspace, ["diff", ...flags])).out;
   const others = (await git(workspace, ["ls-files", "--others", "--exclude-standard", "-z"])).out.split("\0").filter(Boolean);
-  return { scope, available: true, ...(scope === "base" ? { base } : {}), diff: tracked + others.map((rel) => untrackedDiff(workspace, rel)).join("") };
+  return { scope, available: true, branch, ...(scope === "base" ? { base } : {}), diff: tracked + others.map((rel) => untrackedDiff(workspace, rel)).join("") };
 }

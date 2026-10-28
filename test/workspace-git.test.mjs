@@ -44,6 +44,7 @@ test("all changes vs main: committed on the branch plus uncommitted, from where 
   fs.writeFileSync(path.join(dir, "notes.txt"), "hello\n");
   const vsMain = await workspaceDiff(dir, "base");
   assert.equal(vsMain.base, "main");
+  assert.equal(vsMain.branch, "work");
   assert.match(vsMain.diff, /\+    return a \+ b/);
   assert.match(vsMain.diff, /\+\+\+ b\/notes.txt/);
   assert.doesNotMatch((await workspaceDiff(dir, "uncommitted")).diff, /return a \+ b/); // committed, so not uncommitted
