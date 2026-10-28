@@ -3,7 +3,6 @@
 // (a Cosmodex preference), shows what the engine reports, or is locked with the reason, the same
 // way the composer's permissions menu shows a locked option.
 import { createMemo, createResource, createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
-import { useTheme } from "@opencode-ai/ui/theme/context"
 import { Icon } from "../icons"
 import { prefs, setPref, type PrefKey } from "../prefs"
 import { call } from "../engine"
@@ -26,26 +25,6 @@ type Control =
 type Row = { title: string; description?: string; control: Control }
 type Section = { title?: string; rows: Row[] }
 type PageDef = { id: string; title: string; group: "Personal" | "Integrations" | "Coding"; intro?: string; sections: Section[]; custom?: () => JSX.Element }
-
-function ModeControl() {
-  const theme = useTheme()
-  const options = [
-    { id: "system", label: "System" },
-    { id: "light", label: "Light" },
-    { id: "dark", label: "Dark" },
-  ] as const
-  return (
-    <div class="cx-segmented" role="radiogroup" aria-label="Mode">
-      <For each={options}>
-        {(o) => (
-          <button role="radio" aria-checked={theme.colorScheme() === o.id} onClick={() => theme.setColorScheme(o.id)}>
-            {o.label}
-          </button>
-        )}
-      </For>
-    </div>
-  )
-}
 
 const PAGES: PageDef[] = [
   {
@@ -122,7 +101,8 @@ const PAGES: PageDef[] = [
       {
         title: "Visual style",
         rows: [
-          { title: "Mode", control: { kind: "custom", render: () => <ModeControl /> } },
+          // Light or dark follows the platform's theme (no toggle of the simulation's own).
+          { title: "Mode", control: { kind: "segmented", options: ["System", "Light", "Dark"], value: "System", locked: "Follows your theme" } },
           { title: "Theme", control: { kind: "select", options: ["Cosmo"], value: "Cosmo", locked: TASK } },
           { title: "Accent", control: { kind: "value", text: "Default", locked: TASK } },
           { title: "Background", control: { kind: "value", text: "Theme background", locked: TASK } },

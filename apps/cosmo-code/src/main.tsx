@@ -10,8 +10,8 @@ start()
 
 render(
   () => (
-    // The design-system theme shared with OpenCosmo (light/dark follow the system).
-    <ThemeProvider defaultTheme="cosmo">
+    // The design-system theme shared with OpenCosmo; light or dark follows the platform's theme.
+    <ThemeProvider defaultTheme="cosmo" followSystem>
       <App />
     </ThemeProvider>
   ),

@@ -68,7 +68,7 @@ function ThemeControl() {
     <div class="cc-segmented cc-segmented-icons" role="radiogroup" aria-label="Theme">
       <For each={options}>
         {(o) => (
-          <button role="radio" aria-label={o.label} title={o.label} aria-checked={theme.colorScheme() === o.id} onClick={() => theme.setColorScheme(o.id)}>
+          <button role="radio" aria-label={o.label} title={o.label} aria-checked={theme.colorScheme() === o.id} disabled={theme.followsSystem()} onClick={() => theme.setColorScheme(o.id)}>
             <Icon name={o.icon} size={16} />
           </button>
         )}
@@ -137,7 +137,8 @@ const PAGES: Partial<Record<SettingsPage, Section[]>> = {
     {
       title: "Appearance",
       rows: [
-        { label: "Theme", control: { kind: "custom", render: () => <ThemeControl /> } },
+        // Light or dark follows the platform's theme (no toggle of the simulation's own).
+        { label: "Theme", control: { kind: "custom", render: () => <ThemeControl /> }, locked: "Follows your theme" },
         {
           label: "Chat font",
           control: pref(

@@ -177,9 +177,12 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   init: (props: {
     defaultTheme?: string
     onThemeApplied?: (theme: DesktopTheme, mode: "light" | "dark", scheme: ColorScheme) => void
+    /** Cosmo Agents: light or dark always follows the system (the platform's theme); choosing,
+     * previewing and stored choices are ignored. */
+    followSystem?: boolean
   }) => {
     const themeId = normalize(read(STORAGE_KEYS.THEME_ID) ?? props.defaultTheme) ?? "oc-2"
-    const colorScheme = (read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null) ?? "system"
+    const colorScheme = props.followSystem ? "system" : ((read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null) ?? "system")
     const mode = colorScheme === "system" ? getSystemMode() : colorScheme
     const [store, setStore] = createStore({
       themes: {
@@ -247,7 +250,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
           cacheThemeVariants(theme, next)
         })
       }
-      if (e.key === STORAGE_KEYS.COLOR_SCHEME && e.newValue) {
+      if (e.key === STORAGE_KEYS.COLOR_SCHEME && e.newValue && !props.followSystem) {
         setStore("colorScheme", e.newValue as ColorScheme)
         setStore("mode", e.newValue === "system" ? getSystemMode() : (e.newValue as "light" | "dark"))
       }
@@ -265,7 +268,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 
       const rawTheme = read(STORAGE_KEYS.THEME_ID)
       const savedTheme = normalize(rawTheme ?? props.defaultTheme) ?? "oc-2"
-      const savedScheme = (read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null) ?? "system"
+      const savedScheme = props.followSystem ? "system" : ((read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null) ?? "system")
       if (rawTheme && rawTheme !== savedTheme) {
         write(STORAGE_KEYS.THEME_ID, savedTheme)
         clear()
@@ -309,6 +312,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     }
 
     const setColorScheme = (scheme: ColorScheme) => {
+      if (props.followSystem) return
       setStore("colorScheme", scheme)
       write(STORAGE_KEYS.COLOR_SCHEME, scheme)
       setStore("mode", scheme === "system" ? getSystemMode() : scheme)
@@ -317,6 +321,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     return {
       themeId: () => store.themeId,
       colorScheme: () => store.colorScheme,
+      followsSystem: () => !!props.followSystem,
       mode: () => store.mode,
       ids,
       name: (id: string) => store.themes[id]?.name ?? names[id] ?? id,
@@ -341,6 +346,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         })
       },
       previewColorScheme: (scheme: ColorScheme) => {
+        if (props.followSystem) return
         setStore("previewScheme", scheme)
         const mode = scheme === "system" ? getSystemMode() : scheme
         const id = store.previewThemeId ?? store.themeId

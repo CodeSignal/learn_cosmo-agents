@@ -470,6 +470,8 @@ export const SettingsGeneral: Component = () => {
             value={(o) => o.value}
             label={(o) => o.label}
             onSelect={(option) => option && theme.setColorScheme(option.value)}
+            // OpenCosmo: follows the platform's light or dark theme.
+            disabled={theme.followsSystem()}
             variant="secondary"
             size="small"
             triggerVariant="settings"
