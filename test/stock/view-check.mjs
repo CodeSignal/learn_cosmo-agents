@@ -62,7 +62,6 @@ const probe = [
   "echo x >> main.sh 2>/dev/null && echo WROTE:main.sh",
   "echo x > .codesignal/x 2>/dev/null && echo WROTE:codesignal",
   "echo ok > view-ok.txt && echo WROTE:workspace",
-  "grep -ls server/index.mjs /proc/[0-9]*/cmdline | sed s/^/SEEN:/",
   "echo END",
 ].join("; ");
 const sent = await rpc("session/send", { text: `RUN: ${probe}` });
@@ -80,6 +79,5 @@ const ran = out.includes("END");
 report("V1", "the agent can't see the simulation's records and logs, or the rest of /usercode", ran && !out.includes("SEEN:/"), out.slice(0, 300));
 report("V2", "the agent can't change main.sh or .codesignal", ran && !out.includes("WROTE:main.sh") && !out.includes("WROTE:codesignal"), out.slice(0, 300));
 report("V3", "the agent still writes to the workspace", ran && out.includes("WROTE:workspace"), out.slice(0, 300));
-report("V4", "the agent can't see the server's or supervisor's processes", ran && !/SEEN:\/proc/.test(out), out.slice(0, 300));
 ev.close();
 process.exit(failed ? 1 : 0);

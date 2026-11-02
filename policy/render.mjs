@@ -270,10 +270,11 @@ export function renderPolicy(config, env = {}, inputs = {}, pins = PINS) {
  * user can edit (user-level and project config) still load, as with any user-level provisioning;
  * the gateways enforce every ceiling regardless.
  *
- * @param catalogPath  where the caller writes `codexCatalog` (Codex reads its catalog from a file)
+ * @param catalogPath    where the caller writes `codexCatalog` (Codex reads its catalog from a file)
+ * @param claudeSandbox  whether Cosmo Code's own command sandbox can run here
  * @returns {{ engineEnv: object, codexArgs: string[], codexCatalog: object|null }}
  */
-export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath } = {}, pins = PINS) {
+export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, claudeSandbox = true } = {}, pins = PINS) {
   const errors = [];
   const engineEnv = {};
   let codexArgs = [];
@@ -297,6 +298,9 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath } 
     // settings, which carry the model and the allow rules.
     const settings = claude(config, errors);
     delete settings.allowManagedPermissionRulesOnly;
+    // Claude Code's command sandbox mounts its own /proc; where that isn't allowed it can't run
+    // commands at all, and the engine's view (root/supervisor.mjs) confines them instead.
+    if (!claudeSandbox) delete settings.sandbox;
     engineEnv.claude = { ...CLAUDE_ENV, COSMO_CODE_SETTINGS: JSON.stringify(settings) };
   }
   if (errors.length) throw new RenderError(errors);

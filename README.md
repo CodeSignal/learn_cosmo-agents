@@ -102,11 +102,10 @@ keeps the agents to the task:
 
 - **Each engine's own view.** The supervisor starts every engine (and so every command its agent
   runs) in a `bwrap` sandbox: the workspace is writable except the task's own files
-  (`.codesignal/`, `main.sh`, read-only), the rest of `/usercode` and the simulation's folder in
-  the home are hidden except the engine binaries and the release code, and the engine sees only
-  its own processes, never the server's or the supervisor's (or their secrets in `/proc`). The
-  release carries Ubuntu 22.04's `bwrap`; the platform allows the user namespaces it needs. If it
-  can't start, the engines run without it and the summary says `Engine sandbox: off`.
+  (`.codesignal/`, `main.sh`, read-only), and the rest of `/usercode` and the simulation's folder
+  in the home are hidden except the engine binaries and the release code. The release carries
+  Ubuntu 22.04's `bwrap`; the platform allows the user namespaces it needs. If it can't start,
+  the engines run without it and the summary says `Engine sandbox: off`.
 - **The gateways.** Every request a UI sends passes the server's allowlists: models, permission
   modes, approval policies and sandboxes outside the task are refused, as are configuration,
   sign-in, MCP and files outside the workspace. The UIs show refusals like the original's
@@ -120,8 +119,12 @@ keeps the agents to the task:
   sandboxes run inside the view.
 - **The proxy key's model allowlist.**
 
-The engines share the session's network (they need the proxy), so an agent's command can reach
-the server on :3000 like the browser does.
+Two things the view can't separate on the platform's image. Processes: the platform doesn't
+allow a fresh `/proc` in a user namespace, so an agent's command can see, and stop, the server
+and the supervisor (which only breaks the session) and read their environment. Network: the
+engines need the proxy, so an agent's command can reach the server on :3000 like the browser
+does. Codex's own command sandbox still runs inside the view; Cosmo Code's needs a fresh `/proc`,
+so on the platform its commands are confined by the view alone.
 
 ### Root mode
 

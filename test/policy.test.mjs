@@ -246,6 +246,14 @@ test("user mode: each engine's policy as environment or arguments, nothing on di
   assert.equal(cc.permissions.disableBypassPermissionsMode, "disable");
 });
 
+test("user mode: without fresh /proc mounts, Cosmo Code's own command sandbox is off", () => {
+  const c = valid({ agents: ["cosmo-code"] });
+  const on = JSON.parse(renderUserPolicy(c, ENV).engineEnv.claude.COSMO_CODE_SETTINGS);
+  const off = JSON.parse(renderUserPolicy(c, ENV, {}, { claudeSandbox: false }).engineEnv.claude.COSMO_CODE_SETTINGS);
+  assert.equal(on.sandbox.enabled, true);
+  assert.equal(off.sandbox, undefined);
+});
+
 test("user mode: a missing proxy route still fails", () => {
   assert.throws(() => renderUserPolicy(valid({ agents: ["cosmodex"] }), {}, { codexBundledCatalog: CATALOG }, { catalogPath: "/x" }), RenderError);
 });

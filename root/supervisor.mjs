@@ -132,27 +132,33 @@ const TASK_FILES = [".codesignal", "main.sh"];
  * User mode: the filesystem and processes an engine (and every command its agent runs) sees. The
  * workspace is writable except the task's own files; the rest of /usercode is hidden, and so is
  * the simulation's folder in the home except the engines and the release code (state, logs and
- * records stay out of reach). The engine sees only its own processes, so neither the server nor
- * this supervisor, nor their secrets in /proc.
+ * records stay out of reach). Processes aren't separated: the platform doesn't allow mounting a
+ * fresh /proc in a user namespace, and with a process namespace but the system's /proc, Codex's
+ * own sandbox hangs. /proc stays writable for the engines' own sandboxes (their uid maps).
  */
 export function engineView({ home = os.homedir(), base = BASE, app = APP, workspace = WORKSPACE, visible = [], exists = fs.existsSync } = {}) {
   const ro = (p) => ["--ro-bind", p, p];
   return [
-    "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+    "--ro-bind", "/", "/", "--dev", "/dev", "--bind", "/proc", "/proc", "--tmpfs", "/tmp",
     "--bind", home, home, "--tmpfs", base, ...ro(path.join(base, "engines")), ...ro(app), ...visible.flatMap(ro),
     "--tmpfs", path.dirname(workspace), "--bind", workspace, workspace,
     ...TASK_FILES.map((f) => path.join(workspace, f)).filter((f) => exists(f)).flatMap(ro),
-    "--unshare-pid", "--die-with-parent",
+    "--die-with-parent",
   ];
 }
 
-/** The bwrap that works here (the release's own first), or null. */
-function sandboxTool() {
+/**
+ * The bwrap that can set up `view` here (the release's own first): { bwrap, procMount } or
+ * { error }. `procMount` says whether a sandbox may mount a fresh /proc, which Cosmo Code's own
+ * command sandbox needs (the platform's standard image doesn't allow it).
+ */
+function sandboxTool(view) {
   for (const bwrap of [path.join(APP, "vendor", "bin", "bwrap"), ...(process.env.PATH ?? "").split(":").map((d) => path.join(d, "bwrap"))]) {
     if (!fs.existsSync(bwrap)) continue;
-    const probe = spawnSync(bwrap, ["--ro-bind", "/", "/", "--unshare-pid", "true"], { encoding: "utf8", timeout: 10_000 });
-    if (probe.status === 0) return { bwrap };
-    return { error: (probe.stderr || probe.error?.message || `exit ${probe.status}`).trim().slice(0, 200) };
+    const run = (args) => spawnSync(bwrap, [...args, "--", "true"], { encoding: "utf8", timeout: 10_000 });
+    const probe = run(view);
+    if (probe.status !== 0) return { error: (probe.stderr || probe.error?.message || `exit ${probe.status}`).trim().slice(0, 200) };
+    return { bwrap, procMount: run(["--ro-bind", "/", "/", "--unshare-pid", "--proc", "/proc"]).status === 0 };
   }
   return { error: "no bwrap" };
 }
@@ -316,18 +322,20 @@ function applyAsUser() {
   for (const dir of [RUN_DIR, LOG_DIR, EVENTS_DIR]) fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
   const catalogPath = `${STATE_DIR}/codex-models.json`;
   const codexBundledCatalog = policy.agents.includes("cosmodex") ? bundledCodexCatalog() : undefined;
+  const view = engineView({ visible: policy.agents.includes("cosmodex") ? [catalogPath] : [] });
+  if (policy.agents.includes("cosmodex")) fs.writeFileSync(catalogPath, ""); // the view binds it
+  const tool = sandboxTool(view);
+  log("sandbox", tool.bwrap ? { state: "on", procMount: tool.procMount } : { state: "off", error: tool.error });
   let rendered;
   try {
-    rendered = renderUserPolicy(policy, process.env, { codexBundledCatalog }, { catalogPath });
+    rendered = renderUserPolicy(policy, process.env, { codexBundledCatalog }, { catalogPath, claudeSandbox: !!tool.procMount });
   } catch (e) {
     throw e instanceof RenderError ? new Error(e.errors.join("; ")) : e;
   }
   if (rendered.codexCatalog) fs.writeFileSync(catalogPath, JSON.stringify(rendered.codexCatalog, null, 2) + "\n");
   fs.writeFileSync(POLICY, JSON.stringify(policy, null, 2) + "\n");
   log("applied", { mode: "user", agents: policy.agents });
-  const tool = sandboxTool();
-  log("sandbox", tool.bwrap ? { state: "on" } : { state: "off", error: tool.error });
-  const sandbox = tool.bwrap ? { bwrap: tool.bwrap, view: engineView({ visible: rendered.codexCatalog ? [catalogPath] : [] }) } : null;
+  const sandbox = tool.bwrap ? { bwrap: tool.bwrap, view } : null;
   return services({ policy, engineEnv: rendered.engineEnv, codexArgs: rendered.codexArgs, sandbox });
 }
 
