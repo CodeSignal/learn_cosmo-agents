@@ -40,6 +40,7 @@ export const FILES = [
   ["engines/claude-host/package.json", "engines/claude-host/package.json"],
   ["engines/claude-host/package-lock.json", "engines/claude-host/package-lock.json"],
   ["LICENSE", "LICENSE"],
+  ["NOTICE", "NOTICE"],
 ];
 
 const shipped = (src) => !/\.map$/.test(src) && !path.basename(src).startsWith("._") && path.basename(src) !== ".DS_Store";

@@ -22,7 +22,7 @@ WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY engines/claude-host/package.json engines/claude-host/package-lock.json ./engines/claude-host/
-COPY vite.config.js LICENSE ./
+COPY vite.config.js LICENSE NOTICE ./
 COPY client ./client
 RUN npm run build
 COPY server ./server

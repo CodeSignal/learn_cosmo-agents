@@ -164,4 +164,5 @@ Promote a build to production with `gh release edit vN --prerelease=false --late
 
 ## Licence
 
-See [LICENSE](LICENSE). Code vendored from OpenCode keeps its MIT licence and notice.
+See [LICENSE](LICENSE). Code vendored from OpenCode keeps its MIT licence, and the types generated
+from the Codex protocol are Apache-2.0: see [NOTICE](NOTICE).
