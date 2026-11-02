@@ -215,7 +215,6 @@ export function PromptInputV2(props: PromptInputV2Props) {
               onCommands={props.controller.openCommands}
               onContext={props.controller.openContext}
               onShell={props.controller.openShell}
-              shellEnabled={props.controller.shellEnabled()}
             />
             <Show when={view.agent} keyed>
               {(control) => (
@@ -481,7 +480,6 @@ export function PromptInputV2AddMenu(props: {
   onCommands: () => void
   onContext: () => void
   onShell: () => void
-  shellEnabled?: boolean
 }) {
   return (
     <TooltipV2
@@ -516,12 +514,9 @@ export function PromptInputV2AddMenu(props: {
             <MenuV2.Item onSelect={props.onContext} shortcut="@">
               {props.contextLabel}
             </MenuV2.Item>
-            {/* OpenCosmo: no shell entry when the composer may not switch to shell mode. */}
-            <Show when={props.shellEnabled !== false}>
-              <MenuV2.Item onSelect={props.onShell} shortcut="!">
-                {props.shellLabel}
-              </MenuV2.Item>
-            </Show>
+            <MenuV2.Item onSelect={props.onShell} shortcut="!">
+              {props.shellLabel}
+            </MenuV2.Item>
           </MenuV2.Content>
         </MenuV2.Portal>
       </MenuV2>

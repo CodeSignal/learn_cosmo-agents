@@ -1,6 +1,6 @@
 # Vendored OpenCode
 
-Source: https://github.com/anomalyco/opencode, tag `v1.18.35` (commit `53d1eab`), MIT licence
+Source: https://github.com/anomalyco/opencode, tag `v1.19.5` (commit `810c0eb`), MIT licence
 (see `LICENSE` in this directory).
 
 Included: the root workspace files (`package.json`, `bun.lock`, `bunfig.toml`, `tsconfig.json`,

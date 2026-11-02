@@ -34,9 +34,6 @@ import {
   type SelectedLineRange,
 } from "./file/types"
 
-// OpenCosmo: top-level folders never shown in the file tree.
-const HIDDEN_ROOTS = new Set([".codesignal", ".git"])
-
 export type { FileSelection, SelectedLineRange, FileViewState, FileState }
 export { selectionFromLines }
 export {
@@ -85,8 +82,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       list: (dir) =>
         sdk()
           .client.file.list({ path: dir })
-          // OpenCosmo: the task's own files (.codesignal) and git's internals stay out of the tree.
-          .then((x) => (x.data ?? []).filter((node) => !HIDDEN_ROOTS.has(node.path.split("/")[0]!))),
+          .then((x) => x.data ?? []),
       onError: (message) => {
         showToast({
           variant: "error",

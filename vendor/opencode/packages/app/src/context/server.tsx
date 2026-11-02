@@ -1,10 +1,9 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { type Accessor, batch, createEffect, createMemo } from "solid-js"
+import { type Accessor, batch, createMemo } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
 import { ServerScope } from "@/utils/server-scope"
-import { showToast } from "@/utils/toast"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
@@ -288,11 +287,6 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       if (state.active !== input) setState("active", input)
     }
 
-    // OpenCosmo: the simulation's engine is the only server; adding or removing one is refused
-    // like the other locked settings.
-    const refuseServerChange = () =>
-      showToast({ variant: "error", title: "Blocked by the simulation: servers can't be changed here." })
-
     function add(input: ServerConnection.Http) {
       const url_ = normalizeServerUrl(input.http.url)
       if (!url_) return
@@ -325,16 +319,6 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     const scope = (key = state.active) => ServerScope.fromServerKey(key, props.canonicalLocalServer)
     const projects = createServerProjects({ scope, store, setStore })
-    // OpenCosmo: the task's workspace is the only folder the gateway serves, so it starts open
-    // (unless the user has closed it).
-    const workspace = import.meta.env.VITE_WORKSPACE
-    if (workspace) {
-      createEffect(() => {
-        if (!ready()) return
-        if (projects.list().length > 0 || projects.recentlyClosed().includes(workspace)) return
-        projects.open(workspace)
-      })
-    }
     const projectStores = new Map<ServerConnection.Key, ReturnType<typeof createServerProjects>>()
     const projectsForServer = (key: ServerConnection.Key) => {
       const existing = projectStores.get(key)
@@ -364,11 +348,8 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         return current()
       },
       setActive,
-      add: (_input: ServerConnection.Http): ServerConnection.Http | undefined => {
-        refuseServerChange()
-        return undefined
-      },
-      remove: (_key: ServerConnection.Key) => refuseServerChange(),
+      add,
+      remove,
       scope,
       projects: {
         ...projects,

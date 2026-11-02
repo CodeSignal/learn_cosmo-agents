@@ -38,7 +38,6 @@ import { useSettings } from "@/context/settings"
 import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { CustomProviderForm } from "./dialog-custom-provider"
 import { decode64 } from "@/utils/base64"
-import { LockedDialog, opencosmoLocked } from "@/opencosmo-locked"
 
 const CUSTOM_ID = "_custom"
 type ConnectMethod = Extract<IntegrationMethod, { type: "key" | "oauth" }>
@@ -58,8 +57,6 @@ export const DialogConnectProvider: Component<{
   directory?: Accessor<string | undefined>
   controller?: ReturnType<typeof useProviderConnectController>
 }> = (props) => {
-  // OpenCosmo: connecting a provider is the task's choice, never the candidate's.
-  if (opencosmoLocked) return <LockedDialog title="Connect a provider" />
   const fallback = useProviderConnectController()
   const controller = props.controller ?? fallback
   const language = useLanguage()

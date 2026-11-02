@@ -1,4 +1,3 @@
-import { taskStartEffort, terminalEnabled, vendorHidden } from "@/opencosmo-task"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
@@ -319,13 +318,8 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       keybind: command.keybindParts(item.id),
     })),
   )
-  const variants = createMemo(() => [
-    ...(taskStartEffort() ? [] : ["default"]),
-    ...props.controls.model.selection.variant.list(),
-  ])
+  const variants = createMemo(() => ["default", ...props.controls.model.selection.variant.list()])
   const controller = createPromptInputV2Controller({
-    // OpenCosmo: shell mode runs commands directly, so it follows the task's terminal setting.
-    allowShell: terminalEnabled,
     store: () => prompt.capture().store,
     state: interaction,
     identity: () => prompt.capture(),
@@ -402,7 +396,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       },
       variant: {
         options: () => variants().map((value) => ({ id: value, label: value })),
-        current: () => props.controls.model.selection.variant.current() ?? taskStartEffort() ?? "default",
+        current: () => props.controls.model.selection.variant.current() ?? "default",
         onSelect: (value) => props.controls.model.selection.variant.set(value === "default" ? undefined : value),
         keybind: () => command.keybindParts("model.variant.cycle"),
       },
@@ -425,14 +419,14 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       disabled: controller.state.mode !== "normal",
       onSelect: () => controller.attach(),
     },
-    ...(terminalEnabled() ? [{
+    {
       id: "prompt.mode.shell",
       title: language.t("command.prompt.mode.shell"),
       category: language.t("command.category.session"),
       keybind: "mod+shift+x",
       disabled: controller.state.mode === "shell",
       onSelect: () => controller.dispatch({ type: "mode.shell" }),
-    }] : []),
+    },
     {
       id: "prompt.mode.normal",
       title: language.t("command.prompt.mode.normal"),
@@ -488,7 +482,7 @@ function PromptInputV2ModelControl(props: {
   const shouldAnimate = createMemo<boolean>((previous) => previous ?? props.loading)
   const content = () => (
     <>
-      <Show when={!vendorHidden() && props.providerID}>
+      <Show when={props.providerID}>
         {(providerID) => (
           <ProviderIcon
             id={providerID()}

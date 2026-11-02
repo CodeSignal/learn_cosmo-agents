@@ -9,8 +9,7 @@
     localStorage.removeItem("opencode-theme-css-dark")
   }
 
-  // OpenCosmo: light or dark follows the platform (the system), whatever was chosen before.
-  var scheme = "system"
+  var scheme = localStorage.getItem("opencode-color-scheme") || "system"
   var isDark = scheme === "dark" || (scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
   var mode = isDark ? "dark" : "light"
 
