@@ -1043,7 +1043,8 @@ export default function LegacyLayout(props: ParentProps) {
       })
     }
 
-    commands.push({
+    // OpenCosmo: the colour scheme follows the platform, so there's nothing to choose.
+    if (!theme.followsSystem()) commands.push({
       id: "theme.scheme.cycle",
       title: language.t("command.theme.scheme.cycle"),
       category: language.t("command.category.theme"),
@@ -1051,7 +1052,7 @@ export default function LegacyLayout(props: ParentProps) {
       onSelect: () => cycleColorScheme(1),
     })
 
-    for (const scheme of colorSchemeOrder) {
+    for (const scheme of theme.followsSystem() ? [] : colorSchemeOrder) {
       commands.push({
         id: `theme.scheme.${scheme}`,
         title: language.t("command.theme.scheme.set", { scheme: colorSchemeLabel(scheme) }),

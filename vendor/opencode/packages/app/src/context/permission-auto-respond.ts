@@ -1,4 +1,5 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import { autoAcceptEnabled } from "@/opencosmo-task"
 
 export function acceptKey(sessionID: string, directory?: string) {
   if (!directory) return sessionID
@@ -14,7 +15,12 @@ function accepted(autoAccept: Record<string, boolean>, sessionID: string, direct
   return autoAccept[key] ?? autoAccept[sessionID]
 }
 
+// OpenCosmo: the task decides whether permission requests may be answered automatically; when it
+// doesn't, the toggles refuse and a stale saved choice is ignored here.
+const autoAcceptLocked = () => !autoAcceptEnabled()
+
 export function isDirectoryAutoAccepting(autoAccept: Record<string, boolean>, directory: string) {
+  if (autoAcceptLocked()) return false
   const key = directoryAcceptKey(directory)
   return autoAccept[key] ?? false
 }
@@ -43,6 +49,7 @@ export function autoRespondsPermission(
   permission: { sessionID: string },
   directory?: string,
 ) {
+  if (autoAcceptLocked()) return false
   const value = sessionAutoAccept(autoAccept, session, permission, directory)
   if (value !== undefined) return value
   return directory ? isDirectoryAutoAccepting(autoAccept, directory) : false
@@ -54,6 +61,7 @@ export function sessionAutoAccept(
   permission: { sessionID: string },
   directory?: string,
 ) {
+  if (autoAcceptLocked()) return false
   return sessionLineage(session, permission.sessionID)
     .map((id) => accepted(autoAccept, id, directory))
     .find((item): item is boolean => item !== undefined)

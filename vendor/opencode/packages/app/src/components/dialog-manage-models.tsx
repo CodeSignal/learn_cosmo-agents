@@ -21,6 +21,8 @@ import { decode64 } from "@/utils/base64"
 import { SettingsListV2 } from "./settings-v2/parts/list"
 import { SettingsRowV2 } from "./settings-v2/parts/row"
 import "./settings-v2/settings-v2.css"
+import { opencosmoLocked } from "@/opencosmo-locked"
+import { vendorHidden } from "@/opencosmo-task"
 
 type ModelItem = ReturnType<ReturnType<typeof useLocal>["model"]["list"]>[number]
 
@@ -48,9 +50,12 @@ export const DialogManageModels: Component = () => {
       title={language.t("dialog.model.manage")}
       description={language.t("dialog.model.manage.description")}
       action={
-        <Button class="h-7 -my-1 text-14-medium" icon="plus-small" tabIndex={-1} onClick={handleConnectProvider}>
-          {language.t("command.provider.connect")}
-        </Button>
+        // OpenCosmo: the task's models show, with no providers to connect.
+        opencosmoLocked ? undefined : (
+          <Button class="h-7 -my-1 text-14-medium" icon="plus-small" tabIndex={-1} onClick={handleConnectProvider}>
+            {language.t("command.provider.connect")}
+          </Button>
+        )
       }
     >
       <List
@@ -160,9 +165,11 @@ export const DialogManageModelsV2: Component = () => {
           title={language.t("dialog.model.manage")}
           description={language.t("dialog.model.manage.description")}
         />
-        <ButtonV2 variant="neutral" icon="plus" onClick={handleConnectProvider}>
-          {language.t("command.provider.connect")}
-        </ButtonV2>
+        <Show when={!opencosmoLocked}>
+          <ButtonV2 variant="neutral" icon="plus" onClick={handleConnectProvider}>
+            {language.t("command.provider.connect")}
+          </ButtonV2>
+        </Show>
       </DialogHeader>
       <DialogBody class="flex min-h-0 flex-1 flex-col">
         <div class="px-4 pt-px pb-3">
@@ -221,7 +228,12 @@ export const DialogManageModelsV2: Component = () => {
                     <div class="settings-v2-section" data-component="settings-models-provider">
                       <div class="settings-v2-models-group-header justify-between">
                         <div class="flex min-w-0 items-center gap-2">
-                          <ProviderIcon id={group.category} width={16} height={16} class="ml-4 shrink-0" />
+                          <ProviderIcon
+                            id={vendorHidden() ? "synthetic" : group.category}
+                            width={16}
+                            height={16}
+                            class="ml-4 shrink-0"
+                          />
                           <h3 class="settings-v2-section-title">{group.items[0].provider.name}</h3>
                         </div>
                         <div>

@@ -68,6 +68,8 @@ export function createPromptInputV2Controller(input: {
   onSuggestionSelect?: (item: PromptInputV2Suggestion) => (() => void) | void
   view: PromptInputV2ViewConfig
   attachments?: PromptInputV2AttachmentConfig
+  /** OpenCosmo: whether the composer may switch to shell mode (default: yes, as upstream). */
+  allowShell?: Accessor<boolean>
 }) {
   let editor: HTMLElement | undefined
   let fileInput: HTMLInputElement | undefined
@@ -161,7 +163,7 @@ export function createPromptInputV2Controller(input: {
 
   function dispatch(event: PromptInputV2InteractionEvent) {
     const mode = state.mode
-    const result = transitionPromptInputV2(state, event, draft.state)
+    const result = transitionPromptInputV2(state, event, draft.state, { shell: input.allowShell?.() !== false })
     const action = event.type === "popover.select" ? input.onSuggestionSelect?.(event.item) : undefined
     if (event.type === "popover.select") {
       if (!action || state.popover.type !== "command-menu") result.commands.forEach(execute)
@@ -354,6 +356,7 @@ export function createPromptInputV2Controller(input: {
     openShell() {
       dispatch({ type: "mode.shell" })
     },
+    shellEnabled: () => input.allowShell?.() !== false,
     closeShell() {
       dispatch({ type: "mode.normal" })
     },

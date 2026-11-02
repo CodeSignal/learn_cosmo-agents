@@ -1,6 +1,10 @@
 interface ImportMetaEnv {
   readonly VITE_OPENCODE_SERVER_HOST: string
   readonly VITE_OPENCODE_SERVER_PORT: string
+  /** OpenCosmo: same-origin path of the engine gateway, e.g. /engine/opencosmo */
+  readonly VITE_ENGINE_PATH?: string
+  /** OpenCosmo: the task workspace, opened as the first project */
+  readonly VITE_WORKSPACE?: string
   readonly VITE_OPENCODE_CHANNEL?: "dev" | "beta" | "prod"
 
   readonly VITE_SENTRY_DSN?: string

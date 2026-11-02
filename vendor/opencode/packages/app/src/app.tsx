@@ -400,6 +400,9 @@ export function AppBaseProviders(
     <MetaProvider>
       <Font />
       <ThemeProvider
+        // OpenCosmo: the design-system theme is the default; light or dark follows the platform.
+        defaultTheme="cosmo"
+        followSystem
         onThemeApplied={(_, mode, scheme) => {
           void window.api?.setTitlebar?.({ mode, scheme })
         }}

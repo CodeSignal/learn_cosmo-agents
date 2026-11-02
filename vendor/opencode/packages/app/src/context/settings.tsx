@@ -54,8 +54,9 @@ export interface Settings {
   sounds: SoundSettings
 }
 
-export const monoDefault = "System Mono"
-export const sansDefault = "System Sans"
+// OpenCosmo: the design-system fonts are the defaults (the stacks below start with them).
+export const monoDefault = "JetBrains Mono"
+export const sansDefault = "Work Sans"
 export const terminalDefault = "JetBrainsMono Nerd Font Mono"
 const legacyNewLayoutDesignsDefault = import.meta.env.VITE_OPENCODE_CHANNEL !== "prod"
 export const newLayoutDesignsDefault = true
@@ -132,8 +133,8 @@ export function resolveNewLayoutDesigns(retired: boolean, preference: boolean | 
 }
 
 const monoFallback =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-const sansFallback = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+const sansFallback = '"Work Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 const terminalFallback =
   '"JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
 
