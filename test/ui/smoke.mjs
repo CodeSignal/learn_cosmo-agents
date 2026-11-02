@@ -36,7 +36,7 @@ async function launch() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "cosmo-ui-profile-"));
   // CI runners don't give Chrome the user namespaces its own sandbox needs; the pages are ours.
   const flags = process.env.CI ? ["--no-sandbox"] : [];
-  const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...flags, "about:blank"], { stdio: "ignore" });
+  const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...flags, "about:blank"], { stdio: "ignore", detached: true });
   const portFile = path.join(profile, "DevToolsActivePort");
   for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(100);
   const port = fs.readFileSync(portFile, "utf8").split("\n")[0];
@@ -65,9 +65,20 @@ async function launch() {
     on: (fn) => listeners.add(fn),
     async close() {
       ws.close();
-      chrome.kill();
-      if (chrome.exitCode === null) await once(chrome, "exit");
-      fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      // Chrome's helper processes outlive the browser and keep writing to the profile: stop the
+      // whole process group, then remove the profile as far as it goes (it's a temp folder).
+      const exited = chrome.exitCode === null ? once(chrome, "exit") : null;
+      try {
+        process.kill(-chrome.pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      await exited;
+      try {
+        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } catch (error) {
+        console.error(`left the browser profile at ${profile}: ${error.code}`);
+      }
     },
   };
 }
@@ -168,7 +179,14 @@ try {
       await page.until(`document.querySelector(${JSON.stringify(composer)})`);
       await page.evaluate(`document.querySelector(${JSON.stringify(composer)}).focus()`);
       await page.type(`RUN: echo ${marker}`);
-      await page.key("Enter");
+      // Right after the engine starts, a UI can still be loading and ignore Enter (as a user
+      // would, press it again until the composer takes the prompt).
+      const held = `(() => { const el = document.querySelector(${JSON.stringify(composer)}); return !!el && (el.value ?? el.textContent).includes(${JSON.stringify(marker)}); })()`;
+      for (let tries = 0; ; tries++) {
+        await page.key("Enter");
+        if (await page.until(`!${held}`, 3000).then(() => true, () => false)) break;
+        if (tries === 10) throw new Error("the composer never sent the prompt");
+      }
       await page.until(ui.asked);
       await ui.approve(page);
       // The stand-in proxy answers "done (model=…)" once the command's result is back.
