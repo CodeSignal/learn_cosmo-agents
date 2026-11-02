@@ -34,8 +34,10 @@ export function anthropicBaseUrl(raw) {
   return s.endsWith("/v1") ? s : `${s}/v1`;
 }
 
-function opencode(config, env, errors) {
-  const { allowed, default: model } = config.models.opencosmo;
+function opencode(config, env, errors, pins = PINS) {
+  const { allowed, default: model, efforts, names } = config.models.opencosmo;
+  // Effort levels are model variants in OpenCode: the ones the task leaves out are switched off.
+  const off = Object.fromEntries((pins.engines.opencode.efforts ?? []).filter((e) => !efforts?.includes(e)).map((e) => [e, { disabled: true }]));
   const whitelist = {};
   for (const id of allowed) {
     const [provider, ...rest] = id.split("/");
@@ -47,7 +49,16 @@ function opencode(config, env, errors) {
     if (!baseURL) {
       errors.push(`opencosmo allows ${id}/* models but ${id === "anthropic" ? "ANTHROPIC_BASE_URL" : "OPENAI_BASE_URL"} is not set`);
     }
-    provider[id] = { whitelist: models, options: { baseURL } };
+    const perModel = Object.fromEntries(
+      models.map((m) => [m, { ...(names ? { name: names[`${id}/${m}`] } : {}), ...(Object.keys(off).length ? { variants: off } : {}) }]),
+    );
+    provider[id] = {
+      // With cosmic names the vendor isn't named either.
+      ...(names ? { name: "Cosmo" } : {}),
+      whitelist: models,
+      options: { baseURL },
+      ...(Object.values(perModel).some((v) => Object.keys(v).length) ? { models: perModel } : {}),
+    };
   }
   const deny = config.webTools ? {} : { webfetch: "deny", websearch: "deny" };
   const asked = opencodePermissions(config.permissions);
@@ -110,6 +121,7 @@ export function codexCeilings(config) {
     approvalPolicies: CODEX_APPROVAL[config.permissions.preset],
     sandboxModes: config.sandbox ? ["read-only", "workspace-write"] : ["read-only", "workspace-write", "danger-full-access"],
     webSearchModes: config.webTools ? ["disabled", "cached", "live"] : ["disabled"],
+    efforts: config.models.cosmodex?.efforts ?? [],
     // "Approve for me": Codex's review agent answers approval requests instead of the candidate,
     // under the on-request policy it works with (the gateway pairs the two).
     reviewers: config.permissions.auto ? ["user", "auto_review"] : ["user"],
@@ -126,6 +138,7 @@ export function claudeCeilings(config) {
   const asks = config.permissions.preset === "ask";
   return {
     models: config.models["cosmo-code"]?.allowed ?? [],
+    efforts: config.models["cosmo-code"]?.efforts ?? [],
     modes: ["default", "acceptEdits", "plan", ...(config.permissions.auto ? ["auto"] : [])],
     defaultMode: asks ? "default" : "acceptEdits",
     webTools: !!config.webTools,
@@ -159,6 +172,21 @@ function codexRequirements(config, env, errors) {
   };
 }
 
+/** A catalog entry as the task presents it: its cosmic name, and only the task's effort levels. */
+function codexModel(entry, { efforts, effort, names }) {
+  const levels = (entry.supported_reasoning_levels ?? []).filter((l) => !efforts || efforts.includes(l.effort));
+  const allowedLevels = levels.map((l) => l.effort);
+  const start = effort && allowedLevels.includes(effort) ? effort : allowedLevels.includes(entry.default_reasoning_level) ? entry.default_reasoning_level : allowedLevels[0];
+  return {
+    ...entry,
+    visibility: "list",
+    upgrade: null,
+    ...(names ? { display_name: names[entry.slug], description: "" } : {}),
+    supported_reasoning_levels: levels,
+    ...(start ? { default_reasoning_level: start } : {}),
+  };
+}
+
 /** Narrow Codex's bundled catalog (`codex debug models --bundled`) to the task's models. */
 export function codexCatalog(bundled, config, errors) {
   const { allowed } = config.models.cosmodex;
@@ -173,7 +201,7 @@ export function codexCatalog(bundled, config, errors) {
     const entry = bySlug.get(slug);
     if (!entry) errors.push(`Codex's bundled catalog lacks ${slug}`);
     else if (entry.supported_in_api !== true) errors.push(`Codex's bundled catalog does not offer ${slug} for API login`);
-    else selected.push({ ...entry, visibility: "list", upgrade: null });
+    else selected.push(codexModel(entry, config.models.cosmodex));
   }
   // The task default first, so the picker opens on it.
   selected.sort((a, b) => (b.slug === config.models.cosmodex.default) - (a.slug === config.models.cosmodex.default));
@@ -185,6 +213,7 @@ function claude(config, errors) {
   const rules = claudePermissions(config.permissions, errors);
   const settings = {
     model,
+    ...(config.models["cosmo-code"].effort ? { effortLevel: config.models["cosmo-code"].effort } : {}),
     availableModels: allowed,
     enforceAvailableModels: true,
     permissions: {
@@ -299,7 +328,8 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, c
     // gateway sets the task's on every new thread. The sandbox default is Codex's own (read-only)
     // otherwise, under which an approved edit can't even create a folder.
     const sandbox_mode = config.sandbox ? "workspace-write" : "danger-full-access";
-    codexArgs = toTomlOverrides({ ...codexConfig(env, catalogPath, errors), sandbox_mode }).flatMap((o) => ["-c", o]);
+    const effort = config.models.cosmodex.effort;
+    codexArgs = toTomlOverrides({ ...codexConfig(env, catalogPath, errors), sandbox_mode, ...(effort ? { model_reasoning_effort: effort } : {}) }).flatMap((o) => ["-c", o]);
     engineEnv.codex = {};
   }
   if (engines.has("claude")) {

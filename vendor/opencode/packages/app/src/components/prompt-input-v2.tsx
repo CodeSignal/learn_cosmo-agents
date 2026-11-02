@@ -1,4 +1,4 @@
-import { terminalEnabled } from "@/opencosmo-task"
+import { terminalEnabled, vendorHidden } from "@/opencosmo-task"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
@@ -485,7 +485,7 @@ function PromptInputV2ModelControl(props: {
   const shouldAnimate = createMemo<boolean>((previous) => previous ?? props.loading)
   const content = () => (
     <>
-      <Show when={props.providerID}>
+      <Show when={!vendorHidden() && props.providerID}>
         {(providerID) => (
           <ProviderIcon
             id={providerID()}

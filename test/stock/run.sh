@@ -29,9 +29,9 @@ docker exec -d "$NAME" sh -c 'STUB_LOG=/tmp/stub.jsonl PORT=4000 node /tmp/stub-
 # The task's files, read-only and root's, as the platform delivers them.
 docker exec -i -u root "$NAME" sh -c 'cat > .codesignal/agent-sim.json && echo "bash .codesignal/run_solution.sh" > main.sh && chmod 0444 .codesignal/agent-sim.json main.sh' <<'JSON'
 { "agents": ["cosmo-code", "cosmodex", "opencosmo"], "allowSwitch": true,
-  "models": { "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"] },
-              "cosmodex": { "allowed": ["gpt-5.6-terra", "gpt-6-luna"] },
-              "cosmo-code": { "allowed": ["claude-sonnet-5-5"] } } }
+  "models": { "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"], "names": true, "efforts": ["low", "medium", "high"] },
+              "cosmodex": { "allowed": ["gpt-5.6-terra", "gpt-6-luna"], "names": true, "efforts": ["low", "medium"] },
+              "cosmo-code": { "allowed": ["claude-sonnet-5-5"], "names": true, "efforts": ["low", "medium", "high"] } } }
 JSON
 
 # What the base task's setup.sh does, with the release from a local file instead of a download.

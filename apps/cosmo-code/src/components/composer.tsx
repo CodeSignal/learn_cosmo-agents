@@ -49,8 +49,10 @@ const FAMILY: Record<string, string> = {
   opus: "Most capable for complex work",
 }
 
-/** "claude-sonnet-5-5" → "Sonnet 5.5". */
+/** "claude-sonnet-5-5" → "Sonnet 5.5", or the task's name for it ("Orbit"). */
 export function modelName(id: string | null | undefined) {
+  const named = id ? state.modelNames?.[id] : undefined
+  if (named) return named
   const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(id ?? "")
   if (!m) return id ?? "Model"
   return `${m[1]![0]!.toUpperCase()}${m[1]!.slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ""}`
@@ -134,7 +136,7 @@ function ModelMenu() {
               <p class="cc-menu-note">Higher effort means more thorough responses, but takes longer and uses your limits faster.</p>
               <MenuList
                 close={close}
-                items={EFFORTS.map((e) => ({
+                items={EFFORTS.filter((e) => !state.efforts || state.efforts.includes(e.id)).map((e) => ({
                   label: e.id === "medium" ? "Medium · Recommended" : e.label,
                   checked: effort() === e.id,
                   onSelect: () => void configure({ effort: e.id }),
@@ -148,7 +150,8 @@ function ModelMenu() {
               close={close}
               items={models().map((m, i) => ({
                 label: `${modelName(m.id)}${m.isDefault ? " · Default" : ""}`,
-                subtitle: FAMILY[m.family],
+                // A cosmic name says nothing about the model, and neither does its description.
+                subtitle: state.modelNames ? undefined : FAMILY[m.family],
                 shortcut: String(i + 1),
                 checked: currentModel() === m.id,
                 onSelect: () => void configure({ model: m.id }),

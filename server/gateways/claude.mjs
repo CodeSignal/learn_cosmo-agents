@@ -100,7 +100,7 @@ export function checkParams(method, params = {}, ctx) {
   for (const size of ["cols", "rows"]) if (p[size] !== undefined && !(Number.isInteger(p[size]) && p[size] >= 2 && p[size] <= 1000)) return { reason: "the terminal size" };
   if (p.model !== undefined && !ctx.models.includes(p.model)) return { reason: `the model (${String(p.model).slice(0, 40)} isn't available in this task)` };
   if (p.permissionMode !== undefined && !ctx.modes.includes(p.permissionMode)) return { reason: "the permission mode" };
-  if (p.effort !== undefined && !EFFORTS.includes(p.effort)) return { reason: "the effort" };
+  if (p.effort !== undefined && !(ctx.efforts ?? EFFORTS).includes(p.effort)) return { reason: "the effort" };
   if (method === "session/send" && (typeof p.text !== "string" || !p.text.trim() || p.text.length > MAX_TEXT)) return { reason: "this message" };
   if (method === "session/send" && p.instructions !== undefined && (typeof p.instructions !== "string" || p.instructions.length > MAX_INSTRUCTIONS)) return { reason: "these instructions" };
   if (p.title !== undefined && (typeof p.title !== "string" || p.title.length > 200)) return { reason: "the title" };
@@ -213,7 +213,7 @@ export function claudeTranscript(t) {
  * @param transcripts  where the transcript record goes (<workspace>/.codesignal), or none
  */
 export function createClaudeGateway({ url, ceilings, terminal = false, events, agent = "cosmo-code", transcripts, workspace = "/usercode/FILESYSTEM" }) {
-  const ctx = { models: [...ceilings.models], modes: [...ceilings.modes], webTools: !!ceilings.webTools };
+  const ctx = { models: [...ceilings.models], modes: [...ceilings.modes], ...(ceilings.efforts?.length ? { efforts: [...ceilings.efforts] } : {}), webTools: !!ceilings.webTools };
   const handler = createJsonRpcGateway({
     name: "claude",
     agent,

@@ -32,6 +32,7 @@ test("settings: models from the task (or the engine's aliases), modes without by
   assert.match(reason("session/send", { text: "hi", model: "claude-opus-5-5" }), /model/);
   for (const mode of ["bypassPermissions", "dontAsk", "auto"]) assert.match(reason("session/configure", { sessionId: SID, permissionMode: mode }), /permission mode/);
   assert.match(reason("session/configure", { sessionId: SID, effort: "ultra" }), /effort/);
+  assert.match(checkParams("session/configure", { sessionId: SID, effort: "max" }, { ...ctx, efforts: ["low", "medium"] }).reason, /effort/);
   const { config: c } = validateTaskConfig({ agents: ["cosmo-code"] });
   assert.deepEqual(claudeCeilings(c).modes, ["default", "acceptEdits", "plan", "auto"]);
   assert.equal(claudeCeilings(c).defaultMode, "default");

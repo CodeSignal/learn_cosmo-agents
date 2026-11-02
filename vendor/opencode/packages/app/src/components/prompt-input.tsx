@@ -82,6 +82,7 @@ import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
+import { vendorHidden } from "@/opencosmo-task"
 
 export { createPromptInputHistory }
 export type { PromptInputControls, PromptInputHistory, PromptInputProps, PromptInputState, PromptInputSubmission }
@@ -1700,7 +1701,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                 dialog.show(() => <DialogSelectModelUnpaid model={props.controls.model.selection} />)
                               }}
                             >
-                              <Show when={props.controls.model.selection.current()?.provider?.id}>
+                              <Show when={!vendorHidden() && props.controls.model.selection.current()?.provider?.id}>
                                 <ProviderIcon
                                   id={props.controls.model.selection.current()?.provider?.id ?? ""}
                                   class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
@@ -1733,7 +1734,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                 class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
                                 data-action="prompt-model"
                               >
-                                <Show when={props.controls.model.selection.current()?.provider?.id}>
+                                <Show when={!vendorHidden() && props.controls.model.selection.current()?.provider?.id}>
                                   <ProviderIcon
                                     id={props.controls.model.selection.current()?.provider?.id ?? ""}
                                     class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"

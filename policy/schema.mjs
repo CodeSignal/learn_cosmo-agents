@@ -72,12 +72,18 @@ export function validateTaskConfig(raw, pins = PINS) {
         if (!pin.models.includes(m)) errors.push(`"models.${agent}.allowed": "${m}" is not a pinned model (pinned: ${pin.models.join(", ")})`);
       }
       for (const key of Object.keys(entry)) {
-        if (key !== "allowed" && key !== "default") errors.push(`unknown key "models.${agent}.${key}"`);
+        if (!MODEL_KEYS.includes(key)) errors.push(`unknown key "models.${agent}.${key}"`);
       }
       const fallback = allowed.includes(pin.default) ? pin.default : allowed[0];
       const chosen = entry.default ?? fallback;
       if (!allowed.includes(chosen)) errors.push(`"models.${agent}.default" must be in "models.${agent}.allowed"`);
-      models[agent] = { allowed: [...new Set(allowed)], default: chosen };
+      const unique = [...new Set(allowed)];
+      models[agent] = {
+        allowed: unique,
+        default: chosen,
+        ...validateEfforts(entry, pin.efforts, `models.${agent}`, errors),
+        ...validateNames(entry.names, unique, `models.${agent}.names`, errors),
+      };
     }
   }
 
@@ -143,6 +149,47 @@ function validatePermissions(raw, agents, errors) {
     errors.push(`"permissions.edit" and "permissions.bash" can't be applied to cosmodex; use "permissions.preset" only`);
   }
   return out;
+}
+
+const MODEL_KEYS = ["allowed", "default", "efforts", "effort", "names"];
+
+/**
+ * `efforts`: the effort levels the candidate may pick (the engine's own names; all by default);
+ * `effort`: the one sessions start with (the engine's default if unset).
+ */
+function validateEfforts(entry, known, at, errors) {
+  const efforts = entry.efforts ?? known;
+  if (!isStringArray(efforts) || efforts.length === 0) {
+    errors.push(`"${at}.efforts" must be a non-empty array of: ${known.join(", ")}`);
+    return { efforts: known };
+  }
+  for (const e of efforts) if (!known.includes(e)) errors.push(`"${at}.efforts": "${e}" is not an effort level here (known: ${known.join(", ")})`);
+  if (entry.effort !== undefined && !efforts.includes(entry.effort)) errors.push(`"${at}.effort" must be in "${at}.efforts"`);
+  return { efforts: known.filter((e) => efforts.includes(e)), ...(entry.effort !== undefined ? { effort: entry.effort } : {}) };
+}
+
+/** Names the candidate sees instead of the models' own, in the order of "allowed". */
+export const COSMIC_NAMES = ["Orbit", "Nova", "Comet", "Nebula", "Pulsar", "Quasar", "Zenith", "Aurora"];
+
+/**
+ * `names`: true gives every allowed model a cosmic name; an object names them one by one (models it
+ * leaves out get the next free cosmic name). Unset, candidates see the models' own names.
+ */
+function validateNames(raw, allowed, at, errors) {
+  if (raw === undefined || raw === false) return {};
+  if (raw !== true && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
+    errors.push(`"${at}" must be true or an object of model to name`);
+    return {};
+  }
+  const given = raw === true ? {} : raw;
+  for (const [model, name] of Object.entries(given)) {
+    if (!allowed.includes(model)) errors.push(`"${at}": "${model}" is not in the allowed models`);
+    if (typeof name !== "string" || !name.trim() || name.length > 40) errors.push(`"${at}.${model}" must be a name of 1 to 40 characters`);
+  }
+  const taken = new Set(Object.values(given));
+  if (taken.size !== Object.keys(given).length) errors.push(`"${at}" gives two models the same name`);
+  const free = COSMIC_NAMES.filter((n) => !taken.has(n));
+  return { names: Object.fromEntries(allowed.map((m) => [m, given[m] ?? free.shift() ?? m])) };
 }
 
 /** The engine behind an agent, e.g. "opencosmo" -> "opencode". */

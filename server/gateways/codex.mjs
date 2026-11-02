@@ -48,6 +48,11 @@ export function checkParams(method, params = {}, ctx) {
     for (const key of SETUP_KEYS) if (has(key)) return { reason: CONFIG_REASON(key) };
     if (has("approvalsReviewer") && !(ctx.reviewers ?? ["user"]).includes(p.approvalsReviewer)) return { reason: "the approval reviewer" };
     if (has("model") && !ctx.models.includes(p.model)) return { reason: `the model (${String(p.model).slice(0, 40)} isn't available in this task)` };
+    const efforts = ctx.efforts?.length ? ctx.efforts : null;
+    if (efforts && has("effort") && !efforts.includes(p.effort)) return { reason: "the reasoning effort" };
+    if (efforts && p.collaborationMode?.settings?.reasoning_effort != null && !efforts.includes(p.collaborationMode.settings.reasoning_effort)) {
+      return { reason: "the reasoning effort" };
+    }
     // "Approve for me" works under on-request; the candidate answering keeps the task's policy.
     if (has("approvalsReviewer") && !has("approvalPolicy")) {
       p.approvalPolicy = p.approvalsReviewer === "auto_review" ? ctx.reviewerPolicy : ctx.approvalPolicies[0];

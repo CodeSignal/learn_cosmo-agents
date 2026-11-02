@@ -83,6 +83,11 @@ const [state, setState] = createStore({
   sandbox: false,
   /** Whether the task offers Auto mode (the server's /api/session). */
   autoMode: false,
+  /** The task's models as the candidate sees them: cosmic names, effort levels and the starting
+   * effort (the server's /api/session). */
+  modelNames: null as Record<string, string> | null,
+  efforts: null as Effort[] | null,
+  taskEffort: null as Effort | null,
   /** The Settings modal's page, when open; and the keyboard shortcuts dialog. */
   settings: null as SettingsPage | null,
   shortcuts: false,
@@ -131,8 +136,15 @@ export function currentSettings() {
   return {
     mode: (s ? s.mode : state.draft.mode) ?? info?.defaultMode ?? "default",
     model: (s ? s.model : state.draft.model) ?? info?.models[0]?.value ?? null,
-    effort: (s ? s.effort : state.draft.effort) ?? "medium",
+    effort: (s ? s.effort : state.draft.effort) ?? startingEffort(),
   }
+}
+
+/** The effort a new session starts with: the task's, else Medium where the task allows it. */
+function startingEffort(): Effort {
+  const allowed = state.efforts
+  if (state.taskEffort) return state.taskEffort
+  return !allowed || allowed.includes("medium") ? "medium" : allowed[0]!
 }
 
 const blankSession = (id: string, title: string): Session => ({
@@ -312,7 +324,18 @@ export function start() {
   listen(onMessage)
   void fetch("/api/session")
     .then((res) => (res.ok ? res.json() : undefined))
-    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", sandbox: !!session?.sandbox, autoMode: !!session?.autoMode, previewBase: session?.preview ?? null }))
+    .then((session) => {
+      const models = session?.agents?.find((a: { id: string }) => a.id === "cosmo-code")?.models
+      setState({
+        terminal: !!session?.terminal && session.terminal !== "off",
+        sandbox: !!session?.sandbox,
+        autoMode: !!session?.autoMode,
+        previewBase: session?.preview ?? null,
+        modelNames: models?.names ?? null,
+        efforts: models?.efforts ?? null,
+        taskEffort: models?.effort ?? null,
+      })
+    })
     .catch(() => setState("terminal", false))
 }
 

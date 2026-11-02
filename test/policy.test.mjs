@@ -22,7 +22,7 @@ test("defaults: first agent, no switching, terminal off, sandbox on, pinned mode
   assert.equal(c.terminal, "off");
   assert.equal(c.sandbox, true);
   assert.equal(c.webTools, false);
-  assert.deepEqual(c.models.cosmodex, { allowed: PINS.engines.codex.models, default: PINS.engines.codex.default });
+  assert.deepEqual(c.models.cosmodex, { allowed: PINS.engines.codex.models, default: PINS.engines.codex.default, efforts: PINS.engines.codex.efforts });
 });
 
 test("allowSwitch only means something with more than one agent", () => {
@@ -32,7 +32,7 @@ test("allowSwitch only means something with more than one agent", () => {
 
 test("a task can narrow the pinned models but never add one", () => {
   const c = valid({ agents: ["cosmo-code"], models: { "cosmo-code": { allowed: ["claude-haiku-5-5"] } } });
-  assert.deepEqual(c.models["cosmo-code"], { allowed: ["claude-haiku-5-5"], default: "claude-haiku-5-5" });
+  assert.deepEqual(c.models["cosmo-code"], { allowed: ["claude-haiku-5-5"], default: "claude-haiku-5-5", efforts: PINS.engines.claude.efforts });
   const r = validateTaskConfig({ agents: ["cosmo-code"], models: { "cosmo-code": { allowed: ["claude-opus-5-5"] } } });
   assert.equal(r.ok, false);
   assert.match(r.errors.join(), /claude-opus-5-5" is not a pinned model/);
@@ -280,4 +280,44 @@ test("user mode: a missing proxy route still fails", () => {
 
 test("-c overrides: one per leaf, dotted keys, TOML values", () => {
   assert.deepEqual(toTomlOverrides({ a: "x", b: { c: true, d: ["y"] } }), ['a="x"', "b.c=true", 'b.d=["y"]']);
+});
+
+test("efforts: a subset of the engine's levels, in its order, with a starting level from them", () => {
+  const m = valid({ agents: ["cosmo-code"], models: { "cosmo-code": { efforts: ["high", "low"], effort: "low" } } }).models["cosmo-code"];
+  assert.deepEqual(m.efforts, ["low", "high"]);
+  assert.equal(m.effort, "low");
+  const bad = validateTaskConfig({ agents: ["cosmodex"], models: { cosmodex: { efforts: ["max"], effort: "low" } } });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.errors.length, 2);
+});
+
+test("names: cosmic names on request, the task's own where it gives them, unique", () => {
+  const auto = valid({ agents: ["cosmodex"], models: { cosmodex: { names: true } } }).models.cosmodex.names;
+  assert.deepEqual(Object.values(auto), ["Orbit", "Nova", "Comet"]);
+  const mixed = valid({ agents: ["cosmodex"], models: { cosmodex: { allowed: ["gpt-5.6-terra", "gpt-6-luna"], names: { "gpt-6-luna": "Orbit" } } } }).models.cosmodex.names;
+  assert.deepEqual(mixed, { "gpt-5.6-terra": "Nova", "gpt-6-luna": "Orbit" });
+  assert.equal(valid({ agents: ["cosmodex"] }).models.cosmodex.names, undefined);
+  assert.equal(validateTaskConfig({ agents: ["cosmodex"], models: { cosmodex: { names: { "gpt-6-luna": "A", "gpt-6.1-sol": "A" } } } }).ok, false);
+  assert.equal(validateTaskConfig({ agents: ["cosmodex"], models: { cosmodex: { allowed: ["gpt-6-luna"], names: { "gpt-6.1-sol": "A" } } } }).ok, false);
+});
+
+test("names and efforts reach the engines: OpenCode's config and Codex's catalog", () => {
+  const c = valid({
+    agents: ["opencosmo", "cosmodex"],
+    models: {
+      opencosmo: { allowed: ["anthropic/claude-sonnet-5-5"], efforts: ["low", "medium", "high"], names: true },
+      cosmodex: { allowed: ["gpt-5.6-terra"], efforts: ["low", "medium"], effort: "low", names: { "gpt-5.6-terra": "Comet" } },
+    },
+  });
+  const oc = JSON.parse(renderUserPolicy(c, ENV, { codexBundledCatalog: { models: [{ slug: "gpt-5.6-terra", supported_in_api: true, display_name: "GPT", description: "x", default_reasoning_level: "medium", supported_reasoning_levels: ["low", "medium", "high", "xhigh"].map((effort) => ({ effort })) }] } }, { catalogPath: "/x" }).engineEnv.opencode.OPENCODE_CONFIG_CONTENT);
+  assert.equal(oc.provider.anthropic.name, "Cosmo");
+  assert.equal(oc.provider.anthropic.models["claude-sonnet-5-5"].name, "Orbit");
+  assert.deepEqual(Object.keys(oc.provider.anthropic.models["claude-sonnet-5-5"].variants), ["minimal", "xhigh", "max"]);
+  const out = renderUserPolicy(c, ENV, { codexBundledCatalog: { models: [{ slug: "gpt-5.6-terra", supported_in_api: true, display_name: "GPT", description: "x", default_reasoning_level: "medium", supported_reasoning_levels: ["low", "medium", "high", "xhigh"].map((effort) => ({ effort })) }] } }, { catalogPath: "/x" });
+  const [entry] = out.codexCatalog.models;
+  assert.equal(entry.display_name, "Comet");
+  assert.equal(entry.description, "");
+  assert.deepEqual(entry.supported_reasoning_levels.map((l) => l.effort), ["low", "medium"]);
+  assert.equal(entry.default_reasoning_level, "low");
+  assert.ok(out.codexArgs.includes('model_reasoning_effort="low"'));
 });

@@ -43,6 +43,11 @@ test("thread setup: models, approval policy and sandbox within the task; setup o
   assert.match(reason("thread/start", { serviceTier: "priority" }), /service tier/);
   assert.match(reason("thread/start", { approvalsReviewer: "auto_review" }), /approval reviewer/);
   assert.equal(reason("thread/start", { approvalsReviewer: "user" }), undefined);
+  // Only the task's effort levels.
+  const levels = { ...ctx, efforts: ["low", "medium"] };
+  assert.equal(checkParams("turn/start", { threadId: "t", input: [], effort: "low" }, levels).reason, undefined);
+  assert.match(checkParams("turn/start", { threadId: "t", input: [], effort: "xhigh" }, levels).reason, /effort/);
+  assert.match(checkParams("turn/start", { threadId: "t", input: [], collaborationMode: { mode: "plan", settings: { reasoning_effort: "high", developer_instructions: null } } }, levels).reason, /effort/);
   // "Approve for me" when the task offers auto mode; still no other reviewer.
   const auto = { ...ctx, reviewers: ["user", "auto_review"], reviewerPolicy: "on-request" };
   const turn = (extra) => checkParams("turn/start", { threadId: "t", input: [], ...extra }, auto);
