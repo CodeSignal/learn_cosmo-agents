@@ -1,5 +1,5 @@
 {
- "version": "0.161.0",
+ "version": "0.166.0",
  "source": "codex app-server generate-json-schema (ClientRequest)",
  "methods": [
   "account/gatewayOAuth/cancel",
@@ -32,6 +32,7 @@
   "externalAgentConfig/import",
   "externalAgentConfig/import/readHistories",
   "externalAgentConfig/import/recordHistory",
+  "feedback/save",
   "feedback/upload",
   "fs/copy",
   "fs/createDirectory",
@@ -76,6 +77,7 @@
   "thread/attachment/add",
   "thread/attachment/list",
   "thread/attachment/remove",
+  "thread/attachmentOwner/list",
   "thread/compact/start",
   "thread/delete",
   "thread/fork",

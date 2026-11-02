@@ -1,9 +1,9 @@
-// Every client→server method of `codex app-server` at the pinned version (0.161.0, from
+// Every client→server method of `codex app-server` at the pinned version (0.166.0, from
 // `codex app-server generate-json-schema`), with what the gateway does with it: "allow",
 // "terminal" (allowed only with a terminal), or the reason shown when it is refused. A method
 // not listed is unknown and answered with "method not found".
 
-export const CODEX_VERSION = "0.161.0";
+export const CODEX_VERSION = "0.166.0";
 
 const SIGN_IN = "signing in";
 const CONFIG = "configuration";
@@ -47,6 +47,7 @@ export const METHODS = {
   "externalAgentConfig/import": IMPORT,
   "externalAgentConfig/import/readHistories": IMPORT,
   "externalAgentConfig/import/recordHistory": IMPORT,
+  "feedback/save": FEEDBACK,
   "feedback/upload": FEEDBACK,
   "fs/copy": "allow",
   "fs/createDirectory": "allow",
@@ -99,6 +100,7 @@ export const METHODS = {
   "thread/goal/set": "allow",
   "thread/inject_items": HISTORY, // writes items into a thread's history directly
   "thread/items/list": "allow",
+  "thread/attachmentOwner/list": "allow",
   "thread/list": "allow",
   "thread/loaded/list": "allow",
   "thread/metadata/update": "allow",

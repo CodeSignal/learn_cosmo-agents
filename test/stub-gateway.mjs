@@ -60,7 +60,11 @@ function lastUserText(messages) {
   }
   if (!turn.length) return textOf(last.content);
   if (turn.some(isResult)) return null;
-  return turn.map((m) => textOf(m.content)).join("\n");
+  // Codex sends its context as user messages that are one tagged block (<environment_context>…);
+  // they aren't what the user said.
+  const context = (t) => /^\s*<([a-z_ -]+)>[\s\S]*<\/\1>\s*$/.test(t);
+  const said = turn.map((m) => textOf(m.content)).filter((t) => !context(t));
+  return (said.length ? said : turn.map((m) => textOf(m.content))).join("\n");
 }
 
 // Pick a shell-like tool and build arguments from its schema.

@@ -1,11 +1,11 @@
-// Every HTTP route of `opencode serve` at the pinned version (1.18.35, from its OpenAPI
+// Every HTTP route of `opencode serve` at the pinned version (1.19.5, from its OpenAPI
 // document), with what the gateway does with it. A route that is not listed is refused, so a
 // new upstream route stays closed until someone classifies it here.
 //
 // [method, path, decision]; decision is "allow", "terminal" (allowed only with a terminal),
 // or the reason shown when it is refused. {param} matches one path segment, * the rest.
 
-export const OPENCODE_VERSION = "1.18.35";
+export const OPENCODE_VERSION = "1.19.5";
 
 const CONFIG = "configuration";
 const CREDENTIALS = "provider credentials";

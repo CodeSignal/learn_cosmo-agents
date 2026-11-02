@@ -75,13 +75,15 @@ test("OpenCode policy: providers and whitelists from the allowed models, web too
 });
 
 test("OpenCode policy: a model newer than OpenCode's catalog comes with its definition", () => {
-  const c = valid({ agents: ["opencosmo"], models: { opencosmo: { allowed: ["anthropic/claude-haiku-5-5", "openai/gpt-6-luna"], efforts: ["low", "medium"] } } });
-  const doc = JSON.parse(file(renderPolicy(c, ENV), ROOT.opencode));
-  const haiku = doc.provider.anthropic.models["claude-haiku-5-5"];
-  assert.equal(haiku.name, "Claude Haiku 5.5");
-  assert.equal(haiku.reasoning, true);
-  assert.deepEqual(haiku.limit, { context: 1000000, output: 128000 });
-  assert.equal(haiku.variants.high.disabled, true);
+  const def = { name: "Claude Nova", reasoning: true, limit: { context: 1000000, output: 128000 } };
+  const opencode = { ...PINS.engines.opencode, models: [...PINS.engines.opencode.models, "anthropic/claude-nova"], definitions: { "anthropic/claude-nova": def } };
+  const pins = { ...PINS, engines: { ...PINS.engines, opencode } };
+  const raw = { agents: ["opencosmo"], models: { opencosmo: { allowed: ["anthropic/claude-nova", "openai/gpt-6-luna"], efforts: ["low", "medium"] } } };
+  const doc = JSON.parse(file(renderPolicy(validateTaskConfig(raw, pins).config, ENV, {}, pins), ROOT.opencode));
+  const nova = doc.provider.anthropic.models["claude-nova"];
+  assert.equal(nova.name, "Claude Nova");
+  assert.deepEqual(nova.limit, def.limit);
+  assert.equal(nova.variants.high.disabled, true);
   assert.equal(doc.provider.openai.models["gpt-6-luna"].name, undefined); // in the catalog already
 });
 
@@ -96,7 +98,7 @@ test("OpenCode policy: with limited levels, Default is the task's starting level
   // All levels allowed: OpenCode's own defaults.
   const open = JSON.parse(file(renderPolicy(valid({ agents: ["opencosmo"] }), ENV), ROOT.opencode));
   assert.equal(open.agent, undefined);
-  assert.equal(open.provider.anthropic.models["claude-haiku-5-5"].options, undefined);
+  assert.equal(open.provider.anthropic.models, undefined);
 });
 
 test("OpenCode runs from a root-owned config home with project config disabled", () => {

@@ -169,7 +169,7 @@ const main = readFileSync(process.env.STUB_LOG ?? "/tmp/stub.jsonl", "utf8").tri
 const instructed = main.filter((r) => r.systemTail.endsWith(marker));
 const tooLong = await rpc("session/send", { text: "hi", instructions: "x".repeat(4001) });
 report("C16", "sessions get Claude Code's system prompt, with the candidate's instructions appended (short text only)",
-  main.length > 0 && main.every((r) => r.systemChars > 2000 && r.systemHead.includes("You are an interactive agent")) && instructed.length > 0 && tooLong.status === 403,
+  main.length > 0 && main.every((r) => r.systemChars > 2000 && r.systemHead.includes("Claude Agent SDK")) && instructed.length > 0 && tooLong.status === 403,
   JSON.stringify([main.length, instructed.length, main.map((r) => r.systemChars), tooLong.status]));
 
 // Subagents: the engine reports the task live, and its conversation reads back by the id the
