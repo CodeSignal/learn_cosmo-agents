@@ -38,6 +38,9 @@ test("settings: models from the task (or the engine's aliases), modes without by
   assert.equal(claudeCeilings(c).defaultMode, "default");
   const { config: noAuto } = validateTaskConfig({ agents: ["cosmo-code"], permissions: { auto: false } });
   assert.deepEqual(claudeCeilings(noAuto).modes, ["default", "acceptEdits", "plan"]);
+  // Sessions start in Claude Code's own default unless the task allows everything.
+  const preset = (p) => claudeCeilings(validateTaskConfig({ agents: ["cosmo-code"], permissions: { preset: p } }).config).defaultMode;
+  assert.deepEqual(["ask", "engine-default", "allow"].map(preset), ["default", "default", "acceptEdits"]);
 });
 
 test("only the parameters a method declares pass; sessions and messages are ids", () => {

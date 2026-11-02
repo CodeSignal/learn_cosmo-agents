@@ -135,12 +135,13 @@ export function codexCeilings(config) {
  * task's ask rules apply in every mode, so "Accept edits" can't skip a prompt the task wants.
  */
 export function claudeCeilings(config) {
-  const asks = config.permissions.preset === "ask";
   return {
     models: config.models["cosmo-code"]?.allowed ?? [],
     efforts: config.models["cosmo-code"]?.efforts ?? [],
     modes: ["default", "acceptEdits", "plan", ...(config.permissions.auto ? ["auto"] : [])],
-    defaultMode: asks ? "default" : "acceptEdits",
+    // Claude Code's own default asks before edits ("engine-default" keeps it, as terminal
+    // provisioning does); with "allow" nothing needs asking.
+    defaultMode: config.permissions.preset === "allow" ? "acceptEdits" : "default",
     webTools: !!config.webTools,
   };
 }
