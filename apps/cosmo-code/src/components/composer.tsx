@@ -32,6 +32,7 @@ export const MODES: { id: Mode; label: string; description: string; key: string 
   { id: "default", label: "Manual", description: "Always ask before making changes", key: "1" },
   { id: "acceptEdits", label: "Accept edits", description: "Automatically accept all file edits", key: "2" },
   { id: "plan", label: "Plan", description: "Create a plan before making changes", key: "3" },
+  { id: "auto", label: "Auto", description: "Claude approves safe actions and asks about the rest", key: "4" },
 ]
 
 const EFFORTS: { id: Effort; label: string }[] = [
@@ -92,7 +93,11 @@ function ModeMenu() {
         <MenuList
           close={close}
           items={[
-            ...MODES.map((m) => ({ label: m.label, subtitle: m.description, shortcut: m.key, checked: mode() === m.id, onSelect: () => void configure({ mode: m.id }) })),
+            ...MODES.map((m) =>
+              m.id === "auto" && !state.autoMode
+                ? { label: m.label, subtitle: LOCKED, shortcut: m.key, disabled: true }
+                : { label: m.label, subtitle: m.description, shortcut: m.key, checked: mode() === m.id, onSelect: () => void configure({ mode: m.id }) },
+            ),
             { label: "Bypass permissions", subtitle: "Disabled by your organization", disabled: true },
           ]}
         />

@@ -3,11 +3,18 @@
 import { createSignal } from "solid-js"
 
 const [terminal, setTerminal] = createSignal(false)
+const [autoMode, setAutoMode] = createSignal(false)
 
 void fetch(new URL("/api/session", location.origin))
   .then((response) => (response.ok ? response.json() : undefined))
-  .then((session) => setTerminal(session?.terminal !== undefined && session.terminal !== "off"))
+  .then((session) => {
+    setTerminal(session?.terminal !== undefined && session.terminal !== "off")
+    setAutoMode(session?.autoMode === true)
+  })
   .catch(() => setTerminal(false))
 
 /** Whether this task gives the candidate a terminal pane. */
 export const terminalEnabled = terminal
+
+/** Whether this task lets the candidate auto-accept permission requests (the original's toggle). */
+export const autoAcceptEnabled = autoMode

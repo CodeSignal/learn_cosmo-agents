@@ -33,8 +33,10 @@ test("settings: models from the task (or the engine's aliases), modes without by
   for (const mode of ["bypassPermissions", "dontAsk", "auto"]) assert.match(reason("session/configure", { sessionId: SID, permissionMode: mode }), /permission mode/);
   assert.match(reason("session/configure", { sessionId: SID, effort: "ultra" }), /effort/);
   const { config: c } = validateTaskConfig({ agents: ["cosmo-code"] });
-  assert.deepEqual(claudeCeilings(c).modes, ["default", "acceptEdits", "plan"]);
+  assert.deepEqual(claudeCeilings(c).modes, ["default", "acceptEdits", "plan", "auto"]);
   assert.equal(claudeCeilings(c).defaultMode, "default");
+  const { config: noAuto } = validateTaskConfig({ agents: ["cosmo-code"], permissions: { auto: false } });
+  assert.deepEqual(claudeCeilings(noAuto).modes, ["default", "acceptEdits", "plan"]);
 });
 
 test("only the parameters a method declares pass; sessions and messages are ids", () => {

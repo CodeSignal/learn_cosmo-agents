@@ -110,19 +110,21 @@ export function codexCeilings(config) {
     approvalPolicies: CODEX_APPROVAL[config.permissions.preset],
     sandboxModes: config.sandbox ? ["read-only", "workspace-write"] : ["read-only", "workspace-write", "danger-full-access"],
     webSearchModes: config.webTools ? ["disabled", "cached", "live"] : ["disabled"],
+    // "Approve for me": Codex's review agent answers approval requests instead of the candidate.
+    reviewers: config.permissions.auto ? ["user", "auto_review"] : ["user"],
   };
 }
 
 /**
  * What Cosmo Code may be asked for: models from the allowlist, and the permission modes a
- * candidate can pick (never bypass; the managed settings disable it too). The ask rules still
- * apply in every mode, so "Accept edits" can't skip a prompt the task wants.
+ * candidate can pick (never bypass; the managed settings disable it too). Without auto mode the
+ * task's ask rules apply in every mode, so "Accept edits" can't skip a prompt the task wants.
  */
 export function claudeCeilings(config) {
   const asks = config.permissions.preset === "ask";
   return {
     models: config.models["cosmo-code"]?.allowed ?? [],
-    modes: ["default", "acceptEdits", "plan"],
+    modes: ["default", "acceptEdits", "plan", ...(config.permissions.auto ? ["auto"] : [])],
     defaultMode: asks ? "default" : "acceptEdits",
     webTools: !!config.webTools,
   };
@@ -190,6 +192,7 @@ function claude(config, errors) {
       defaultMode: claudeCeilings(config).defaultMode,
       disableBypassPermissionsMode: "disable",
     },
+    ...(config.permissions.auto ? {} : { disableAutoMode: "disable" }),
     allowManagedPermissionRulesOnly: true,
     allowManagedHooksOnly: true,
     allowManagedMcpServersOnly: true,
@@ -252,7 +255,12 @@ export function renderPolicy(config, env = {}, inputs = {}, pins = PINS) {
   }
   if (engines.has("claude")) {
     dirs.push("/etc/claude-code");
-    files.push({ path: ROOT.claude, content: json(claude(config, errors)) });
+    // Policy ask rules make even Auto ask, and root mode loads rules from the managed file only:
+    // with auto mode, Manual there is Claude Code's own default (it asks before edits and
+    // commands, short of ones it knows only read). User mode keeps the task's ask rules.
+    const settings = claude(config, errors);
+    if (config.permissions.auto) settings.permissions.ask = [];
+    files.push({ path: ROOT.claude, content: json(settings) });
     engineEnv.claude = { ...CLAUDE_ENV };
   }
 
@@ -301,7 +309,10 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, c
     // Claude Code's command sandbox mounts its own /proc; where that isn't allowed it can't run
     // commands at all, and the engine's view (root/supervisor.mjs) confines them instead.
     if (!claudeSandbox) delete settings.sandbox;
-    engineEnv.claude = { ...CLAUDE_ENV, COSMO_CODE_SETTINGS: JSON.stringify(settings) };
+    // Policy ask rules make even Auto ask, so with auto mode the task's ask rules go to the flag
+    // tier only: Manual still asks for everything the task says, Auto leaves it to the classifier.
+    const policyTier = config.permissions.auto ? { ...settings, permissions: { ...settings.permissions, ask: [] } } : settings;
+    engineEnv.claude = { ...CLAUDE_ENV, COSMO_CODE_SETTINGS: JSON.stringify(policyTier), COSMO_CODE_FLAG_SETTINGS: JSON.stringify(settings) };
   }
   if (errors.length) throw new RenderError(errors);
   return { engineEnv, codexArgs, codexCatalog: catalog };

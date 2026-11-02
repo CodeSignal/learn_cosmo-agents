@@ -82,6 +82,10 @@ const [state, setState] = createStore({
   },
   /** Whether the task gives the candidate a terminal (the server's /api/session). */
   terminal: false,
+  /** Whether the task offers "Approve for me" (the server's /api/session). */
+  autoMode: false,
+  /** Who answers approval requests: the candidate, or Codex's review agent ("Approve for me"). */
+  reviewer: "user" as "user" | "auto_review",
 })
 export { state }
 
@@ -351,6 +355,7 @@ export async function send(draft: string | Draft, mode: "plan" | "default" = sta
       ...(state.model ? { model: state.model } : {}),
       ...(state.effort ? { effort: state.effort } : {}),
       ...(collaborationMode ? { collaborationMode } : {}),
+      approvalsReviewer: state.reviewer,
     })
     setState("threadMode", id, mode)
   } catch (error) {
@@ -520,11 +525,17 @@ export async function answer(requestId: string, decision: string) {
   }
 }
 
+/** The composer's permissions menu: "Ask for approval" or, when the task offers it, "Approve for me". */
+export function setReviewer(reviewer: "user" | "auto_review") {
+  if (reviewer === "auto_review" && !state.autoMode) return
+  setState("reviewer", reviewer)
+}
+
 export function start() {
   listen(onMessage)
   void fetch("/api/session")
     .then((res) => (res.ok ? res.json() : undefined))
-    .then((session) => setState("terminal", !!session?.terminal && session.terminal !== "off"))
+    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", autoMode: !!session?.autoMode }))
     .catch(() => setState("terminal", false))
 }
 

@@ -43,6 +43,10 @@ test("thread setup: models, approval policy and sandbox within the task; setup o
   assert.match(reason("thread/start", { serviceTier: "priority" }), /service tier/);
   assert.match(reason("thread/start", { approvalsReviewer: "auto_review" }), /approval reviewer/);
   assert.equal(reason("thread/start", { approvalsReviewer: "user" }), undefined);
+  // "Approve for me" when the task offers auto mode; still no other reviewer.
+  const auto = { ...ctx, reviewers: ["user", "auto_review"] };
+  assert.equal(checkParams("turn/start", { threadId: "t", input: [], approvalsReviewer: "auto_review" }, auto).reason, undefined);
+  assert.match(checkParams("turn/start", { threadId: "t", input: [], approvalsReviewer: "guardian_subagent" }, auto).reason, /approval reviewer/);
   assert.match(reason("thread/start", { cwd: "/etc" }), /outside/);
 });
 

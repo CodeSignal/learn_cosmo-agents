@@ -154,8 +154,11 @@ test("toml writer: scalars first, nested tables, quoting", () => {
 });
 
 test("permissions default to asking before every edit and shell command", () => {
-  assert.deepEqual(valid({ agents: ["opencosmo"] }).permissions, { preset: "ask" });
-  assert.deepEqual(valid({ agents: ["opencosmo"], permissions: {} }).permissions, { preset: "ask" });
+  // Auto mode is offered, but sessions start asking.
+  assert.deepEqual(valid({ agents: ["opencosmo"] }).permissions, { preset: "ask", auto: true });
+  assert.deepEqual(valid({ agents: ["opencosmo"], permissions: {} }).permissions, { preset: "ask", auto: true });
+  assert.equal(valid({ agents: ["opencosmo"], permissions: { auto: false } }).permissions.auto, false);
+  assert.equal(validateTaskConfig({ agents: ["opencosmo"], permissions: { auto: "yes" } }).ok, false);
   const doc = JSON.parse(file(renderPolicy(valid({ agents: ["opencosmo"] }), ENV), ROOT.opencode));
   assert.equal(doc.permission.edit, "ask");
   assert.equal(doc.permission.bash, "ask");
@@ -192,7 +195,22 @@ test("OpenCode: the ask preset prompts for edits and commands; overrides and pat
   assert.deepEqual(Object.entries(doc.permission.bash), [["*", "ask"], ["git status*", "allow"], ["rm *", "deny"]]);
 });
 
-const claudeRules = (permissions) => JSON.parse(file(renderPolicy(valid({ agents: ["cosmo-code"], permissions }), ENV), ROOT.claude)).permissions;
+// The task's rules as written, without auto mode (which leaves the ask rules out; see below).
+const claudeSettings = (permissions) => JSON.parse(file(renderPolicy(valid({ agents: ["cosmo-code"], permissions }), ENV), ROOT.claude));
+const claudeRules = (permissions) => claudeSettings({ auto: false, ...permissions }).permissions;
+
+test("Claude Code with auto mode: ask rules in the flag tier only (in the policy tier Auto would ask too)", () => {
+  const c = valid({ agents: ["cosmo-code"], permissions: { preset: "ask" } });
+  const env = renderUserPolicy(c, ENV).engineEnv.claude;
+  assert.deepEqual(JSON.parse(env.COSMO_CODE_SETTINGS).permissions.ask, []);
+  assert.deepEqual(JSON.parse(env.COSMO_CODE_FLAG_SETTINGS).permissions.ask, ["Edit", "Write", "NotebookEdit", "Bash"]);
+  assert.equal(JSON.parse(env.COSMO_CODE_SETTINGS).disableAutoMode, undefined);
+  const without = renderUserPolicy(valid({ agents: ["cosmo-code"], permissions: { preset: "ask", auto: false } }), ENV).engineEnv.claude;
+  assert.deepEqual(JSON.parse(without.COSMO_CODE_SETTINGS).permissions.ask, ["Edit", "Write", "NotebookEdit", "Bash"]);
+  assert.equal(JSON.parse(without.COSMO_CODE_SETTINGS).disableAutoMode, "disable");
+  // Root mode reads rules from the managed file only: with auto mode, Manual is the engine's default.
+  assert.deepEqual(claudeSettings({ preset: "ask" }).permissions.ask, []);
+});
 
 test("Claude Code: ask preset lists edits and Bash under ask; allow preset under allow", () => {
   const ask = claudeRules({ preset: "ask" });

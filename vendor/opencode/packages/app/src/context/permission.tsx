@@ -15,6 +15,7 @@ import { requireServerKey } from "@/utils/session-route"
 import type { ServerScope } from "@/utils/server-scope"
 import { normalizePermissionRequest } from "./global-sync/utils"
 import { showToast } from "@/utils/toast"
+import { autoAcceptEnabled } from "@/opencosmo-task"
 import {
   acceptKey,
   directoryAcceptKey,
@@ -165,15 +166,19 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       isAutoAcceptingDirectory(directory: string) {
         return selected().isAutoAcceptingDirectory(directory)
       },
-      // OpenCosmo: turning on auto-accept is refused like the other locked settings.
-      toggleAutoAccept(_sessionID: string, _directory: string) {
-        refuseAutoAccept()
+      // OpenCosmo: turning on auto-accept is refused like the other locked settings unless the
+      // task offers auto mode.
+      toggleAutoAccept(sessionID: string, directory: string) {
+        if (!autoAcceptEnabled()) return refuseAutoAccept()
+        selected().toggleAutoAccept(sessionID, directory)
       },
-      toggleAutoAcceptDirectory(_directory: string) {
-        refuseAutoAccept()
+      toggleAutoAcceptDirectory(directory: string) {
+        if (!autoAcceptEnabled()) return refuseAutoAccept()
+        selected().toggleAutoAcceptDirectory(directory)
       },
-      enableAutoAccept(_sessionID: string, _directory: string) {
-        refuseAutoAccept()
+      enableAutoAccept(sessionID: string, directory: string) {
+        if (!autoAcceptEnabled()) return refuseAutoAccept()
+        selected().enableAutoAccept(sessionID, directory)
       },
       disableAutoAccept(sessionID: string, directory?: string) {
         selected().disableAutoAccept(sessionID, directory)

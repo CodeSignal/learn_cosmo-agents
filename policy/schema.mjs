@@ -98,21 +98,25 @@ export function validateTaskConfig(raw, pins = PINS) {
 }
 
 /**
- * `permissions`: { preset, edit?, bash? }. `edit` is one action; `bash` is one action or an
- * object of command patterns ("*" wildcards, later patterns win) to actions.
+ * `permissions`: { preset, edit?, bash?, auto? }. `edit` is one action; `bash` is one action or an
+ * object of command patterns ("*" wildcards, later patterns win) to actions. `auto` (default
+ * true) lets the candidate switch each agent to its auto mode, as the originals do: Cosmo Code's
+ * Auto (a classifier decides), Cosmodex's "Approve for me" (a review agent decides) and
+ * OpenCosmo's auto-accept. Sessions still start asking.
  */
 function validatePermissions(raw, agents, errors) {
-  if (raw === undefined) return { preset: "ask" };
+  if (raw === undefined) return { preset: "ask", auto: true };
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     errors.push(`"permissions" must be an object`);
-    return { preset: "ask" };
+    return { preset: "ask", auto: true };
   }
   for (const key of Object.keys(raw)) {
-    if (!["preset", "edit", "bash"].includes(key)) errors.push(`unknown key "permissions.${key}"`);
+    if (!["preset", "edit", "bash", "auto"].includes(key)) errors.push(`unknown key "permissions.${key}"`);
   }
   const preset = raw.preset ?? "ask";
   if (!PERMISSION_PRESETS.includes(preset)) errors.push(`"permissions.preset" must be one of: ${PERMISSION_PRESETS.join(", ")}`);
-  const out = { preset };
+  if (raw.auto !== undefined && typeof raw.auto !== "boolean") errors.push(`"permissions.auto" must be true or false`);
+  const out = { preset, auto: raw.auto ?? true };
   if (raw.edit !== undefined) {
     if (!ACTIONS.includes(raw.edit)) errors.push(`"permissions.edit" must be one of: ${ACTIONS.join(", ")}`);
     else out.edit = raw.edit;

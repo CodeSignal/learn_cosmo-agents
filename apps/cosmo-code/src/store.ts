@@ -11,7 +11,7 @@ export type Pane = "plan" | "changes" | "terminal" | "files" | "tasks" | "previe
 export type SettingsPage = "general" | "privacy" | "usage" | "code" | "cowork" | "import" | "system" | "skills" | "connectors" | "plugins"
 export const FOLDER = WORKSPACE.split("/").filter(Boolean).pop() ?? "workspace"
 
-export type Mode = "default" | "acceptEdits" | "plan"
+export type Mode = "default" | "acceptEdits" | "plan" | "auto"
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max"
 export type ModelInfo = { value: string; resolvedModel?: string; displayName: string; description?: string; supportedEffortLevels?: Effort[] }
 
@@ -81,6 +81,8 @@ const [state, setState] = createStore({
   previewBase: null as string | null,
   /** Whether the task runs commands in its sandbox (the server's /api/session). */
   sandbox: false,
+  /** Whether the task offers Auto mode (the server's /api/session). */
+  autoMode: false,
   /** The Settings modal's page, when open; and the keyboard shortcuts dialog. */
   settings: null as SettingsPage | null,
   shortcuts: false,
@@ -310,7 +312,7 @@ export function start() {
   listen(onMessage)
   void fetch("/api/session")
     .then((res) => (res.ok ? res.json() : undefined))
-    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", sandbox: !!session?.sandbox, previewBase: session?.preview ?? null }))
+    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", sandbox: !!session?.sandbox, autoMode: !!session?.autoMode, previewBase: session?.preview ?? null }))
     .catch(() => setState("terminal", false))
 }
 

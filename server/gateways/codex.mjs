@@ -45,7 +45,7 @@ export function checkParams(method, params = {}, ctx) {
 
   if (THREAD_SETUP.has(method) || method === "turn/start" || method === "command/exec") {
     for (const key of SETUP_KEYS) if (has(key)) return { reason: CONFIG_REASON(key) };
-    if (has("approvalsReviewer") && p.approvalsReviewer !== "user") return { reason: "the approval reviewer" };
+    if (has("approvalsReviewer") && !(ctx.reviewers ?? ["user"]).includes(p.approvalsReviewer)) return { reason: "the approval reviewer" };
     if (has("model") && !ctx.models.includes(p.model)) return { reason: `the model (${String(p.model).slice(0, 40)} isn't available in this task)` };
     if (has("approvalPolicy") && !(typeof p.approvalPolicy === "string" && ctx.approvalPolicies.includes(p.approvalPolicy))) {
       return { reason: "the approval policy" };

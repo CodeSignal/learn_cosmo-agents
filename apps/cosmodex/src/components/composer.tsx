@@ -3,7 +3,7 @@
 import { createMemo, createSignal, For, Show, type JSX } from "solid-js"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
-import { chooseModel, effortLabel, modelName, PROJECT, send, setPlanMode, state, stop, type ThreadView } from "../store"
+import { chooseModel, effortLabel, modelName, PROJECT, send, setPlanMode, setReviewer, state, stop, type ThreadView } from "../store"
 import { editor } from "../editor"
 import { PromptInput } from "./prompt-input"
 
@@ -15,7 +15,7 @@ function PermissionsMenu() {
       placement="above"
       trigger={(_, toggle) => (
         <button class="cx-chip" aria-label="Change permissions" onClick={toggle}>
-          <Icon name="hand" size={14} /> Ask for approval
+          <Icon name="hand" size={14} /> {state.reviewer === "auto_review" ? "Approve for me" : "Ask for approval"}
         </button>
       )}
     >
@@ -25,8 +25,10 @@ function PermissionsMenu() {
           <MenuList
             close={close}
             items={[
-              { label: "Ask for approval", subtitle: "Always ask to edit external files and use the internet", checked: true },
-              { label: "Approve for me", locked: LOCKED },
+              { label: "Ask for approval", subtitle: "Always ask to edit external files and use the internet", checked: state.reviewer === "user", onSelect: () => setReviewer("user") },
+              state.autoMode
+                ? { label: "Approve for me", subtitle: "Codex reviews each request and asks you only when it's risky", checked: state.reviewer === "auto_review", onSelect: () => setReviewer("auto_review") }
+                : { label: "Approve for me", locked: LOCKED },
               { label: "Full access", locked: LOCKED },
             ]}
           />

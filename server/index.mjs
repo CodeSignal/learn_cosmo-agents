@@ -206,6 +206,7 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
     allowSwitch: policy.allowSwitch,
     terminal: policy.terminal,
     sandbox: policy.sandbox,
+    autoMode: policy.permissions.auto,
     preview: previewBase,
   });
 

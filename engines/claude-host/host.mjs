@@ -28,7 +28,7 @@ const TOKEN = process.env.COSMO_CODE_TOKEN ?? "";
 const WORKSPACE = process.env.WORKSPACE ?? "/usercode/FILESYSTEM";
 const CLAUDE = process.env.CLAUDE_BIN ?? "/usr/bin/claude";
 // Defence in depth: the gateway checks these too, and the managed settings forbid bypass.
-const MODES = new Set(["default", "acceptEdits", "plan"]);
+const MODES = new Set(["default", "acceptEdits", "plan", "auto"]);
 const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const ARCHIVED = "archived";
 // Plan mode writes the plan to a file here; ExitPlanMode itself carries no plan.
@@ -39,6 +39,11 @@ const MANAGED = "/etc/claude-code/managed-settings.json";
 // which go to the engine as policy-tier settings from this process (restrictive keys only) and as
 // flag settings (the model, the default mode and allow rules).
 const SETTINGS = process.env.COSMO_CODE_SETTINGS ? JSON.parse(process.env.COSMO_CODE_SETTINGS) : null;
+// The flag tier, when it differs: with auto mode it carries the task's ask rules, which make
+// even Auto ask wherever they are, so a session in Auto gets them lifted (flagFor).
+const FLAG_SETTINGS = process.env.COSMO_CODE_FLAG_SETTINGS ? JSON.parse(process.env.COSMO_CODE_FLAG_SETTINGS) : SETTINGS;
+const flagFor = (mode) =>
+  FLAG_SETTINGS && mode === "auto" ? { ...FLAG_SETTINGS, permissions: { ...FLAG_SETTINGS.permissions, ask: [] } } : FLAG_SETTINGS;
 // The candidate's terminal, only when the task has one ("sandboxed"; the gateway checks too).
 const TERMINAL = process.env.COSMO_CODE_TERMINAL === "sandboxed";
 const TERMINAL_SHELL = process.env.TERMINAL_SHELL ?? "/opt/agentsim/bin/terminal-shell";
@@ -86,10 +91,10 @@ const base = () => ({
   // As in the desktop app: the user's and project's settings and CLAUDE.md files are read; managed
   // settings always apply on top and lock permissions, hooks and MCP servers.
   settingSources: ["user", "project", "local"],
-  ...(SETTINGS ? { managedSettings: SETTINGS, settings: SETTINGS } : {}),
+  ...(SETTINGS ? { managedSettings: SETTINGS, settings: FLAG_SETTINGS } : {}),
   includePartialMessages: true,
   enableFileCheckpointing: true,
-  env: Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "COSMO_CODE_SETTINGS")),
+  env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("COSMO_CODE_"))),
   stderr: (data) => process.stderr.write(data),
 });
 
@@ -148,6 +153,7 @@ function openSession(sessionId, settings, { resume = false, resumeAt } = {}) {
       ...(resume ? { resume: sessionId, ...(resumeAt ? { resumeSessionAt: resumeAt } : {}) } : { sessionId }),
       ...(settings.model ? { model: settings.model } : {}),
       ...(settings.permissionMode ? { permissionMode: settings.permissionMode } : {}),
+      ...(FLAG_SETTINGS ? { settings: flagFor(settings.permissionMode) } : {}),
       ...(settings.effort ? { effort: settings.effort } : {}),
       mcpServers: { [APP_TOOLS]: appTools() },
       canUseTool: (toolName, toolInput, opts) => decide(session, toolName, toolInput, opts),
@@ -522,7 +528,11 @@ function openTerminal(cols, rows) {
 /** Model and mode change on the running engine; effort applies from the next session start. */
 async function configure(session, settings) {
   if (settings.model && settings.model !== session.settings.model) await session.q.setModel(settings.model);
-  if (settings.permissionMode && settings.permissionMode !== session.settings.permissionMode) await session.q.setPermissionMode(settings.permissionMode);
+  if (settings.permissionMode && settings.permissionMode !== session.settings.permissionMode) {
+    // The task's ask rules apply outside Auto only (a permissions overlay replaces the last one).
+    if (FLAG_SETTINGS) await session.q.applyFlagSettings({ permissions: flagFor(settings.permissionMode).permissions });
+    await session.q.setPermissionMode(settings.permissionMode);
+  }
   if (settings.effort && settings.effort !== session.settings.effort && session.state === "idle") {
     session.close();
     openSession(session.id, { ...session.settings, ...settings }, { resume: true });

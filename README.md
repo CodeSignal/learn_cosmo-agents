@@ -70,10 +70,23 @@ The task ships `.codesignal/agent-sim.json`. A task can only narrow what
 | `permissions.preset` | `"ask"` | `"ask"`: approve every edit and shell command; `"engine-default"`: each engine's own behaviour; `"allow"`: no prompts |
 | `permissions.edit` | from preset | `"ask"`, `"allow"` or `"deny"` for file edits |
 | `permissions.bash` | from preset | One action for all shell commands, or `{ "<pattern>": action }` with `*` wildcards, later patterns winning |
+| `permissions.auto` | `true` | Whether the candidate may switch an agent to its auto mode (below) |
 
 Permission prompts look and work exactly as in the original app; every answer (once, always,
 reject) is recorded in the event log. Cosmodex takes `permissions.preset` only: Codex approves by
 policy, so per-command rules can't be applied there and are refused rather than ignored.
+
+**Auto mode.** With `permissions.auto` (the default), each agent offers its original's auto mode,
+and sessions still start asking:
+
+| Agent | Auto mode | Who decides |
+|---|---|---|
+| Cosmo Code | the Auto permission mode | Claude Code's classifier; it asks when unsure |
+| Cosmodex | "Approve for me" | Codex's review agent |
+| OpenCosmo | Auto-accept permissions (Ctrl or Cmd+Shift+A, or Settings) | nobody: every request is accepted |
+
+In Cosmo Code the task's ask rules apply in every other mode and are lifted in Auto, where they
+would make even Auto ask. Automatic answers are recorded like the candidate's own.
 
 ## Setup in a task
 
