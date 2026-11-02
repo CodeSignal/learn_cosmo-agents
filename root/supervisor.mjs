@@ -111,14 +111,15 @@ function which(bin) {
 
 /**
  * The workspace as a git repository (engines show changes against it), with the task's own
- * files (.codesignal, main.sh) in the repo-local exclude list, so they stay out of change lists and file
- * search (the OpenCode gateway also filters its search results; cosmetic: the agent can still read them).
+ * files (.codesignal, main.sh) and a Python virtualenv (.venv) in the repo-local exclude list, so
+ * they stay out of change lists and file search (the OpenCode gateway also filters its search
+ * results; cosmetic: the agent can still read them, and use the virtualenv).
  */
 function gitWorkspace() {
   const script = [
     "[ -d .git ] || git init -q",
     'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
-    ...["/.codesignal/", "/main.sh"].map((p) => `{ grep -qxF "${p}" "$f" 2>/dev/null || echo "${p}" >> "$f"; }`),
+    ...["/.codesignal/", "/main.sh", "/.venv/"].map((p) => `{ grep -qxF "${p}" "$f" 2>/dev/null || echo "${p}" >> "$f"; }`),
   ].join(" && ");
   if (USER_MODE) return spawnSync("sh", ["-c", script], { cwd: WORKSPACE, env: { PATH: "/usr/bin:/bin", HOME: os.homedir() } });
   const acct = account(SESSION_USER);

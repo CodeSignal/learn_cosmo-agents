@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { createOpenCodeGateway, withoutTaskFiles } from "../server/gateways/opencode.mjs";
+import { createOpenCodeGateway, withoutExcluded } from "../server/gateways/opencode.mjs";
 import { ROUTES, pathPattern } from "../server/gateways/opencode-routes.mjs";
 
 const listen = (server) => new Promise((r) => server.listen(0, "127.0.0.1", () => r(`http://127.0.0.1:${server.address().port}`)));
@@ -135,11 +135,12 @@ test("permission answers are logged with the reply and reach the engine with the
   assert.deepEqual(events.map((e) => [e.type, e.reply]), Array(3).fill(["permission-reply", "once"]));
 });
 
-test("search results leave out the task's own files (.codesignal, main.sh)", async (t) => {
+test("search results leave out what git excludes (.codesignal, main.sh, .venv)", async (t) => {
   const root = "/usercode/FILESYSTEM";
-  assert.deepEqual(withoutTaskFiles([".codesignal/agent-sim.json", "main.sh", "notes/main.sh", "src/a.py", ".codesignal"], root), ["notes/main.sh", "src/a.py"]);
-  assert.deepEqual(withoutTaskFiles([{ path: { text: `${root}/.codesignal/x` } }, { path: { text: "a.py" } }], root), [{ path: { text: "a.py" } }]);
-  assert.deepEqual(withoutTaskFiles({ location: {}, data: [{ path: "main.sh", type: "file" }, { path: "b.py", type: "file" }] }, root).data, [{ path: "b.py", type: "file" }]);
+  assert.deepEqual(withoutExcluded([".codesignal/agent-sim.json", "main.sh", "notes/main.sh", "src/a.py", ".codesignal"], root), ["notes/main.sh", "src/a.py"]);
+  assert.deepEqual(withoutExcluded([".venv/lib/x.py", ".venv", "venv-notes.md", "src/.venv.txt"], root), ["venv-notes.md", "src/.venv.txt"]);
+  assert.deepEqual(withoutExcluded([{ path: { text: `${root}/.codesignal/x` } }, { path: { text: "a.py" } }], root), [{ path: { text: "a.py" } }]);
+  assert.deepEqual(withoutExcluded({ location: {}, data: [{ path: "main.sh", type: "file" }, { path: "b.py", type: "file" }] }, root).data, [{ path: "b.py", type: "file" }]);
   const { base, seen, close } = await setup({ reply: () => JSON.stringify([".codesignal/agent-sim.json", "notes/agent-sim.md"]) });
   t.after(close);
   const res = await fetch(`${base}/find/file?query=agent-sim&directory=%2Fusercode%2FFILESYSTEM`);

@@ -14,15 +14,16 @@ const PERMISSION_REPLY = [
   /^\/api\/session\/[^/]+\/permission\/[^/]+\/reply$/,
 ];
 
-// File and text search (v1 and v2 API). The task's own files stay out of their results, as git
-// excludes them; OpenCode 1.19 no longer reads git's exclude file for its search.
+// File and text search (v1 and v2 API). What the supervisor git-excludes (the task's own files and
+// a Python virtualenv) stays out of their results; OpenCode 1.19 no longer reads git's exclude file
+// for its search.
 const SEARCH = ["/find/file", "/find", "/api/fs/find"];
-const TASK_FILE = /^(\.codesignal(\/|$)|main\.sh$)/;
+const EXCLUDED = /^(\.codesignal(\/|$)|main\.sh$|\.venv(\/|$))/;
 
-/** A search result without the task's own files: path lists, text matches or v2 entries. */
-export function withoutTaskFiles(result, root) {
+/** A search result without git-excluded paths: path lists, text matches or v2 entries. */
+export function withoutExcluded(result, root) {
   const rel = (p) => (typeof p === "string" ? p.replace(/^\.\//, "").replace(root + "/", "") : "");
-  const keep = (x) => !TASK_FILE.test(rel(typeof x === "string" ? x : (x?.path?.text ?? x?.path)));
+  const keep = (x) => !EXCLUDED.test(rel(typeof x === "string" ? x : (x?.path?.text ?? x?.path)));
   if (Array.isArray(result)) return result.filter(keep);
   if (Array.isArray(result?.data)) return { ...result, data: result.data.filter(keep) };
   return result;
@@ -239,7 +240,7 @@ export function createOpenCodeGateway({ target, password, workspace, terminal, e
       const up = await fetch(new URL(sub, target), { headers: { ...auth, ...(dir ? { "x-opencode-directory": dir } : {}) } });
       let body = await up.text();
       try {
-        body = JSON.stringify(withoutTaskFiles(JSON.parse(body), root));
+        body = JSON.stringify(withoutExcluded(JSON.parse(body), root));
       } catch {
         /* not JSON: as the engine sent it */
       }
