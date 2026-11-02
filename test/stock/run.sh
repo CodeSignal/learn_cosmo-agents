@@ -16,9 +16,9 @@ fi
 docker build -q -t cosmo-agents:stock test/stock >/dev/null || { echo "stock image build failed"; exit 1; }
 docker rm -f "$NAME" >/dev/null 2>&1
 # The platform allows user namespaces and an unmasked /proc (a setup-time probe: `unshare -U -r`
-# works); Docker's defaults don't.
+# works); Docker's defaults (seccomp, masked paths, AppArmor where the host has it) don't.
 docker run -d --name "$NAME" -p "$PORT:3000" \
-  --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
+  --security-opt seccomp=unconfined --security-opt systempaths=unconfined --security-opt apparmor=unconfined \
   -e OPENAI_BASE_URL=http://127.0.0.1:4000/v1 -e OPENAI_API_KEY=test-key-scoped \
   -e ANTHROPIC_BASE_URL=http://127.0.0.1:4000 -e ANTHROPIC_API_KEY=test-key-scoped \
   -e APP_ENVIRONMENT=staging cosmo-agents:stock sleep infinity >/dev/null
