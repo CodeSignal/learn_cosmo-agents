@@ -28,7 +28,10 @@ test("sign-in, config writes, plugins, MCP, imports, feedback and history rewrit
 });
 
 test("thread setup: models, approval policy and sandbox within the task; setup overrides refused; cwd pinned", () => {
-  assert.deepEqual(checkParams("thread/start", {}, ctx).params, { cwd: "/usercode/FILESYSTEM" });
+  // The workspace and the task's approval policy unless the UI picks an allowed one.
+  assert.deepEqual(checkParams("thread/start", {}, ctx).params, { cwd: "/usercode/FILESYSTEM", approvalPolicy: ctx.approvalPolicies[0] });
+  assert.equal(checkParams("thread/fork", { threadId: "t" }, ctx).params.approvalPolicy, ctx.approvalPolicies[0]);
+  assert.equal(checkParams("turn/start", { threadId: "t", input: [] }, ctx).params.approvalPolicy, undefined);
   assert.equal(reason("thread/start", { model: "gpt-6-luna" }), undefined);
   assert.match(reason("thread/start", { model: "gpt-6-astra" }), /model/);
   assert.match(reason("thread/start", { approvalPolicy: "never" }), /approval policy/);

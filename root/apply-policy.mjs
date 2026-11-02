@@ -8,9 +8,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { validateTaskConfig, engineOf } from "../policy/schema.mjs";
 import { renderPolicy, RenderError } from "../policy/render.mjs";
+import { bundledCodexCatalog } from "./codex-catalog.mjs";
 
 const MAX_CONFIG_BYTES = 64 * 1024;
 const MAX_INSTRUCTIONS_BYTES = 32 * 1024;
@@ -52,26 +52,10 @@ function callerHome() {
   return line ? line.split(":")[5] : null;
 }
 
-/** `codex debug models --bundled`, run as nobody in a throwaway CODEX_HOME. */
+/** The bundled catalog, or a stand-in file in tests. */
 function codexBundledCatalog(args) {
   if (args.codexCatalogFile) return JSON.parse(fs.readFileSync(args.codexCatalogFile, "utf8"));
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentsim-codex-"));
-  fs.chmodSync(tmp, 0o777);
-  try {
-    const res = spawnSync("codex", ["debug", "models", "--bundled"], {
-      cwd: tmp,
-      env: { PATH: process.env.PATH, HOME: tmp, CODEX_HOME: tmp },
-      encoding: "utf8",
-      timeout: 60_000,
-      ...(isRoot ? { uid: 65534, gid: 65534 } : {}),
-    });
-    if (res.status !== 0) return null;
-    return JSON.parse(res.stdout);
-  } catch {
-    return null;
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
+  return bundledCodexCatalog();
 }
 
 function writeAtomic(file, content) {

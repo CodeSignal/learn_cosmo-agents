@@ -35,17 +35,8 @@ Requests that change something are refused when the browser marks them as coming
 site or from a sandboxed page (a previewed file the agent wrote), so a page can't answer the
 agent's permission prompts.
 
-Three users matter:
-
-| User | Runs | Can change |
-|---|---|---|
-| root | `apply-policy` (once), the supervisor | everything |
-| `agentsim` | the server and gateways | its event log |
-| session user (`runner`) | the engines and every tool call the agent makes | the workspace |
-
-The agent's shell tools run as the session user, so anything that user owns is advisory. The
-locks live where that user can't reach: root-owned policy files the engines treat as final, a
-server running as another user, and the proxy key's model allowlist.
+The agent's shell tools run as the session user. How far the locks reach depends on whether
+setup has root: see [Setup in a task](#setup-in-a-task).
 
 ## Task configuration
 
@@ -86,20 +77,67 @@ policy, so per-command rules can't be applied there and are refused rather than 
 
 ## Setup in a task
 
-The image has the engines and this app preinstalled under `/opt/agentsim`. The task's setup
-script runs, as the session user:
+The platform's standard task image runs setup as the session user, without root, so the
+simulation runs in **user mode**. The base task's [`.codesignal/setup.sh`](.codesignal/setup.sh)
+downloads the release for the channel (`APP_ENVIRONMENT`), unpacks it in the session user's home
+(`~/.cosmo-agents`, outside the workspace, so the editor shows only the task's files) and runs
+`scripts/session-setup.sh` from it, which:
+
+1. installs the pinned engines the task's agents use with npm, into `~/.cosmo-agents/engines`,
+   and the engine host's dependencies (about 30 seconds);
+2. starts the supervisor in user mode: it validates `.codesignal/agent-sim.json` once, renders
+   every engine's policy into memory, starts the server and the engines and restarts them if
+   they stop;
+3. returns once the server on :3000 answers.
+
+[`.codesignal/README.md`](.codesignal/README.md) has the base task's settings.
+`OPENAI_BASE_URL`/`OPENAI_API_KEY` and `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` must be set for
+the engines the task enables (the LLM proxy sets them); setup fails rather than let an engine
+bypass the proxy.
+
+### What holds without root
+
+Everything runs as the session user, as with the platform's terminal agent provisioning, so
+files that user owns are advisory. What the candidate and the agent can't get around:
+
+- **The gateways.** Every request a UI sends passes the server's allowlists: models, permission
+  modes, approval policies and sandboxes outside the task are refused, as are configuration,
+  sign-in, MCP and files outside the workspace. The UIs show refusals like the original's
+  managed settings.
+- **Policies from memory.** Each engine gets the task's policy from the supervisor when it
+  starts (OpenCode as inline config, Codex as `-c` overrides, Cosmo Code as policy-tier settings
+  from the engine host), so editing a config file on disk changes nothing the running session
+  enforces. User- and project-level config files still load, as with any user-level setup.
+- **Permission prompts** (`permissions` in the task config): with the default `ask`, the agent
+  can only change a file or run a command the candidate approves.
+- **The proxy key's model allowlist.**
+
+The supervisor restarts an engine or server that stops, and replaces a process that takes over
+their ports, but the agent runs as the same user and could stop the supervisor too. The
+engines' command sandboxes need `bwrap`; when the image has none, setup unpacks the
+distribution's package if it can, and agents' commands otherwise run unsandboxed.
+
+### Root mode
+
+With an image that preinstalls the app under `/opt/agentsim` and lets setup use two sudo
+helpers, the simulation runs locked down: root-owned policy files the engines treat as final,
+the server as its own user, and a root supervisor.
 
 ```bash
-# Optional: your platform's own agent provisioning (user-level instructions, transcript
-# extraction into .codesignal/<engine>/) runs first.
 sudo -n /opt/agentsim/bin/apply-policy --config .codesignal/agent-sim.json
 sudo -n /opt/agentsim/bin/agentsim-start
 ```
 
-`OPENAI_BASE_URL`/`OPENAI_API_KEY` and `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` must be set for
-the engines the task enables; `apply-policy` fails rather than let an engine bypass the proxy.
-`run_solution.sh` calls `/opt/agentsim/scripts/run_solution.sh`, which prints the setup, the
-event log and any extracted transcripts for evaluation.
+Three users matter there:
+
+| User | Runs | Can change |
+|---|---|---|
+| root | `apply-policy` (once), the supervisor | everything |
+| `agentsim` | the server and gateways | its event log |
+| session user (`runner`) | the engines and every tool call the agent makes | the workspace |
+
+`test/container/run.sh` checks that mode; `test/stock/run.sh` checks user mode on a stand-in for
+the standard image.
 
 ## Evaluation output
 
@@ -127,6 +165,7 @@ npm test               # unit tests (no Docker)
 npm run test:container # builds the image and runs the lockdown checks in a container
 sh scripts/build-ui.sh # builds the three agent UIs into dist-agents/ (Bun in Docker)
 sh scripts/dev-container.sh   # a local container with a stand-in LLM proxy, on :3010
+sh test/stock/run.sh   # user mode on a stand-in for the platform's standard image, on :3020
 npm run test:ui        # drives each agent UI in headless Chrome against that container
 npm run build && npm run pack   # release.tar.gz from dist/ and dist-agents/
 npm run verify:release          # unpacks release.tar.gz and boots it

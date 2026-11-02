@@ -68,6 +68,9 @@ export function checkParams(method, params = {}, ctx) {
       }
     }
     if ((THREAD_SETUP.has(method) || method === "command/exec") && !has("cwd")) p.cwd = ctx.workspace;
+    // The task's policy unless the UI picks an allowed one. Codex takes "untrusted" only from
+    // its requirements file or a request, and without root there is no requirements file.
+    if (THREAD_SETUP.has(method) && !has("approvalPolicy")) p.approvalPolicy = ctx.approvalPolicies[0];
   }
   if (method === "command/exec" && has("env")) {
     const key = typeof p.env === "object" ? Object.keys(p.env).find((k) => !TERMINAL_ENV.has(k)) : "env";

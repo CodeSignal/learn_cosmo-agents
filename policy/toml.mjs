@@ -30,3 +30,12 @@ export function toToml(doc, path = []) {
   }
   return out;
 }
+
+/** The same document as Codex `-c key=value` overrides: one per leaf, dotted keys. */
+export function toTomlOverrides(doc, path = []) {
+  return Object.entries(doc).flatMap(([k, v]) => {
+    if (v === undefined) return [];
+    const p = [...path, key(k)];
+    return isTable(v) ? toTomlOverrides(v, p) : [`${p.join(".")}=${value(v)}`];
+  });
+}

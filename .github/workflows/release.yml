@@ -1,8 +1,9 @@
 name: Build and release
 
-# Every push to main builds the release tarball inside the image build (so the image the checks run
-# against installs exactly what ships), runs the unit tests, boots the unpacked tarball, runs the
-# container lockdown checks and the UI smoke test, and only then publishes. A build from main is a
+# Every push to main builds the release tarball inside the image build (so the images the checks
+# run against install exactly what ships), runs the unit tests, boots the unpacked tarball, runs
+# the root-mode lockdown checks, installs it on a stand-in for the platform's standard image (user
+# mode) for the gateway checks and the UI smoke test, and only then publishes. A build from main is a
 # pre-release: staging gets it through the floating `prerelease` tag, production when someone
 # promotes it to latest (README, "Releases"). Pull requests run the same checks without publishing.
 on:
@@ -49,11 +50,13 @@ jobs:
       - name: Container checks
         run: sh test/container/run.sh
 
+      # User mode, as on the platform's standard image: the tarball installed and started by the
+      # session user, then the gateway checks.
+      - name: Standard image checks
+        run: sh test/stock/run.sh out/release.tar.gz | tee stock.log && ! grep -q '^FAIL' stock.log
+
       - name: UI smoke test
-        run: |
-          SANDBOX=1 BUILD=0 sh scripts/dev-container.sh
-          for i in $(seq 60); do curl -sf http://localhost:3010/api/health >/dev/null && break; sleep 1; done
-          npm run test:ui -- --out ui-screenshots
+        run: npm run test:ui -- --base http://localhost:3020 --out ui-screenshots
 
       - name: Keep the screenshots
         if: always()

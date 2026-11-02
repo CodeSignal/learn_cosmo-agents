@@ -2,7 +2,7 @@
 // Pure: no filesystem access, so every rule is unit-testable. root/apply-policy.mjs writes
 // the result.
 import { PINS, engineOf } from "./schema.mjs";
-import { toToml } from "./toml.mjs";
+import { toToml, toTomlOverrides } from "./toml.mjs";
 
 export const ROOT = {
   agentsim: "/etc/agentsim",
@@ -128,9 +128,21 @@ export function claudeCeilings(config) {
   };
 }
 
-function codexRequirements(config, env, errors) {
+/** Codex configuration (not requirements): the proxy as the only provider and the narrowed catalog. */
+function codexConfig(env, catalogPath, errors) {
   const baseUrl = (env.OPENAI_BASE_URL || "").trim();
   if (!baseUrl) errors.push("cosmodex is enabled but OPENAI_BASE_URL is not set");
+  return {
+    check_for_update_on_startup: false,
+    model_provider: CODEX_PROVIDER,
+    model_catalog_json: catalogPath,
+    model_providers: {
+      [CODEX_PROVIDER]: { name: "LLM proxy", base_url: baseUrl, env_key: "OPENAI_API_KEY", wire_api: "responses" },
+    },
+  };
+}
+
+function codexRequirements(config, env, errors) {
   return {
     allowed_approval_policies: codexCeilings(config).approvalPolicies,
     allowed_sandbox_modes: codexCeilings(config).sandboxModes,
@@ -139,12 +151,7 @@ function codexRequirements(config, env, errors) {
     allow_remote_control: false,
     allow_browser_and_computer_use: false,
     allow_managed_hooks_only: true,
-    check_for_update_on_startup: false,
-    model_provider: CODEX_PROVIDER,
-    model_catalog_json: ROOT.codexCatalog,
-    model_providers: {
-      [CODEX_PROVIDER]: { name: "LLM proxy", base_url: baseUrl, env_key: "OPENAI_API_KEY", wire_api: "responses" },
-    },
+    ...codexConfig(env, ROOT.codexCatalog, errors),
   };
 }
 
@@ -201,6 +208,18 @@ function claude(config, errors) {
   return settings;
 }
 
+const OPENCODE_ENV = {
+  OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+  OPENCODE_DISABLE_MODELS_FETCH: "1",
+  OPENCODE_DISABLE_AUTOUPDATE: "1",
+  OPENCODE_DISABLE_SHARE: "1",
+  OPENCODE_DISABLE_LSP_DOWNLOAD: "1",
+  OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
+  OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
+  OPENCODE_DISABLE_CLAUDE_CODE: "1",
+};
+const CLAUDE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
+
 /**
  * @param config  validated task config
  * @param env     the proxy route: OPENAI_BASE_URL, ANTHROPIC_BASE_URL (keys never go into files)
@@ -222,17 +241,7 @@ export function renderPolicy(config, env = {}, inputs = {}, pins = PINS) {
     }
     // A root-owned XDG_CONFIG_HOME and no project config: nothing the candidate can write
     // is loaded as OpenCode config (user-level allow rules otherwise beat managed denies).
-    engineEnv.opencode = {
-      XDG_CONFIG_HOME: ROOT.xdg,
-      OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-      OPENCODE_DISABLE_MODELS_FETCH: "1",
-      OPENCODE_DISABLE_AUTOUPDATE: "1",
-      OPENCODE_DISABLE_SHARE: "1",
-      OPENCODE_DISABLE_LSP_DOWNLOAD: "1",
-      OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
-      OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
-      OPENCODE_DISABLE_CLAUDE_CODE: "1",
-    };
+    engineEnv.opencode = { XDG_CONFIG_HOME: ROOT.xdg, ...OPENCODE_ENV };
   }
   if (engines.has("codex")) {
     dirs.push("/etc/codex");
@@ -244,11 +253,50 @@ export function renderPolicy(config, env = {}, inputs = {}, pins = PINS) {
   if (engines.has("claude")) {
     dirs.push("/etc/claude-code");
     files.push({ path: ROOT.claude, content: json(claude(config, errors)) });
-    engineEnv.claude = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
+    engineEnv.claude = { ...CLAUDE_ENV };
   }
 
   files.push({ path: ROOT.engineEnv, content: json(engineEnv) });
   files.push({ path: ROOT.policy, content: json(config) });
   if (errors.length) throw new RenderError(errors);
   return { dirs, files };
+}
+
+/**
+ * The same policy for a session without root (a platform image where setup runs as the session
+ * user). Nothing can be written where an engine treats it as final, so each engine gets its
+ * policy from the process that starts it, which holds it in memory: OpenCode as inline config,
+ * Codex as `-c` overrides, Cosmo Code's engine host as SDK policy-tier settings. Files the session
+ * user can edit (user-level and project config) still load, as with any user-level provisioning;
+ * the gateways enforce every ceiling regardless.
+ *
+ * @param catalogPath  where the caller writes `codexCatalog` (Codex reads its catalog from a file)
+ * @returns {{ engineEnv: object, codexArgs: string[], codexCatalog: object|null }}
+ */
+export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath } = {}, pins = PINS) {
+  const errors = [];
+  const engineEnv = {};
+  let codexArgs = [];
+  let catalog = null;
+  const engines = new Set(config.agents.map((a) => engineOf(a, pins)));
+  if (engines.has("opencode")) {
+    engineEnv.opencode = { OPENCODE_CONFIG_CONTENT: JSON.stringify(opencode(config, env, errors)), ...OPENCODE_ENV };
+  }
+  if (engines.has("codex")) {
+    catalog = codexCatalog(inputs.codexBundledCatalog, config, errors);
+    // The approval policy can't be configured here ("untrusted" only comes from requirements): the
+    // gateway sets the task's on every new thread.
+    codexArgs = toTomlOverrides(codexConfig(env, catalogPath, errors)).flatMap((o) => ["-c", o]);
+    engineEnv.codex = {};
+  }
+  if (engines.has("claude")) {
+    // Policy-tier settings from a parent process keep only restrictive keys, and "managed rules
+    // only" would then drop the task's allow rules too; the host also passes these as flag
+    // settings, which carry the model and the allow rules.
+    const settings = claude(config, errors);
+    delete settings.allowManagedPermissionRulesOnly;
+    engineEnv.claude = { ...CLAUDE_ENV, COSMO_CODE_SETTINGS: JSON.stringify(settings) };
+  }
+  if (errors.length) throw new RenderError(errors);
+  return { engineEnv, codexArgs, codexCatalog: catalog };
 }

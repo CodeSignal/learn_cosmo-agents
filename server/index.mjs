@@ -315,7 +315,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // POLICY_PATH at a hand-written agent-sim.json.
   let policy;
   try {
-    const result = validateTaskConfig(JSON.parse(fs.readFileSync(POLICY_PATH, "utf8")));
+    // Without root the supervisor passes the config itself (a file the session user could edit).
+    const result = validateTaskConfig(JSON.parse(process.env.POLICY_JSON ?? fs.readFileSync(POLICY_PATH, "utf8")));
     if (!result.ok) throw new Error(result.errors.join("; "));
     policy = result.config;
   } catch (e) {

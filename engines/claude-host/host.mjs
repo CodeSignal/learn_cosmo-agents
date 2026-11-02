@@ -35,6 +35,10 @@ const ARCHIVED = "archived";
 const PLANS = path.join(os.homedir(), ".claude", "plans");
 const MAX_PLAN = 200_000;
 const MANAGED = "/etc/claude-code/managed-settings.json";
+// Without root there are no managed settings on disk: the supervisor passes the task's settings,
+// which go to the engine as policy-tier settings from this process (restrictive keys only) and as
+// flag settings (the model, the default mode and allow rules).
+const SETTINGS = process.env.COSMO_CODE_SETTINGS ? JSON.parse(process.env.COSMO_CODE_SETTINGS) : null;
 // The candidate's terminal, only when the task has one ("sandboxed"; the gateway checks too).
 const TERMINAL = process.env.COSMO_CODE_TERMINAL === "sandboxed";
 const TERMINAL_SHELL = process.env.TERMINAL_SHELL ?? "/opt/agentsim/bin/terminal-shell";
@@ -82,9 +86,10 @@ const base = () => ({
   // As in the desktop app: the user's and project's settings and CLAUDE.md files are read; managed
   // settings always apply on top and lock permissions, hooks and MCP servers.
   settingSources: ["user", "project", "local"],
+  ...(SETTINGS ? { managedSettings: SETTINGS, settings: SETTINGS } : {}),
   includePartialMessages: true,
   enableFileCheckpointing: true,
-  env: { ...process.env },
+  env: Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "COSMO_CODE_SETTINGS")),
   stderr: (data) => process.stderr.write(data),
 });
 
@@ -258,7 +263,7 @@ const rpcError = (code, message) => Object.assign(new Error(message), { rpc: { c
 /** The mode sessions start in, as the managed settings say (the prompt bar shows it up front). */
 function managedDefaultMode() {
   try {
-    const mode = JSON.parse(fs.readFileSync(MANAGED, "utf8")).permissions?.defaultMode;
+    const mode = (SETTINGS ?? JSON.parse(fs.readFileSync(MANAGED, "utf8"))).permissions?.defaultMode;
     return MODES.has(mode) ? mode : "default";
   } catch {
     return "default";

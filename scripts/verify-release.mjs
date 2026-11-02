@@ -60,7 +60,7 @@ async function main() {
 
   const required = [
     "server/index.mjs", "root/apply-policy.mjs", "root/supervisor.mjs", "root/find-owners.mjs",
-    "engines/claude-host/host.mjs", "engines/claude-host/package-lock.json", "scripts/summary.mjs", "scripts/run_solution.sh",
+    "engines/claude-host/host.mjs", "engines/claude-host/package-lock.json", "scripts/summary.mjs", "scripts/run_solution.sh", "scripts/session-setup.sh",
     "bin/apply-policy", "bin/agentsim-start", "bin/terminal-shell", "sudoers", "install.sh", "policy/pins.json",
     "dist/index.html", "dist-agents/opencosmo/index.html", "dist-agents/cosmodex/index.html", "dist-agents/cosmo-code/index.html",
   ];

@@ -10,7 +10,7 @@ const arg = (name, fallback) => {
   return at > 0 ? process.argv[at + 1] : fallback;
 };
 const STATE = process.env.AGENTSIM_STATE ?? "/var/lib/agentsim";
-const policyFile = arg("policy", "/etc/agentsim/policy.json");
+const policyFile = arg("policy", process.env.AGENTSIM_POLICY ?? "/etc/agentsim/policy.json");
 const eventsFile = arg("events", `${STATE}/events/events.jsonl`);
 const supervisorFile = arg("supervisor", `${STATE}/supervisor.jsonl`);
 

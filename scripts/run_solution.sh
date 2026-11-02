@@ -5,13 +5,14 @@
 # <workspace>/.codesignal/<engine>/ (those live in the workspace, so they can be edited).
 WORKSPACE="${WORKSPACE:-/usercode/FILESYSTEM}"
 STATE="${AGENTSIM_STATE:-/var/lib/agentsim}"
+POLICY="${AGENTSIM_POLICY:-/etc/agentsim/policy.json}"
 
 node "$(dirname "$0")/summary.mjs" 2>/dev/null || echo "## SUMMARY
 (summary unavailable)"
 
 echo
 echo "## AGENT SETUP"
-cat /etc/agentsim/policy.json 2>/dev/null || echo "(no applied policy)"
+cat "$POLICY" 2>/dev/null || echo "(no applied policy)"
 
 echo
 echo "## SIMULATION EVENTS"

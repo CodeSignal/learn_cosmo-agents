@@ -35,6 +35,7 @@ export const FILES = [
   ["root/sudoers", "sudoers"],
   ["root/install.sh", "install.sh"],
   ["scripts/run_solution.sh", "scripts/run_solution.sh"],
+  ["scripts/session-setup.sh", "scripts/session-setup.sh"],
   // The image installs the engines from the pin table (the code has it compiled in).
   ["policy/pins.json", "policy/pins.json"],
   ["engines/claude-host/package.json", "engines/claude-host/package.json"],

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateTaskConfig, PINS } from "../policy/schema.mjs";
-import { renderPolicy, RenderError, codexCatalog, anthropicBaseUrl, ROOT } from "../policy/render.mjs";
-import { toToml } from "../policy/toml.mjs";
+import { renderPolicy, renderUserPolicy, RenderError, codexCatalog, anthropicBaseUrl, ROOT } from "../policy/render.mjs";
+import { toToml, toTomlOverrides } from "../policy/toml.mjs";
 
 const ENV = { OPENAI_BASE_URL: "https://proxy.test/v1", ANTHROPIC_BASE_URL: "https://proxy.test" };
 const CATALOG = {
@@ -219,4 +219,36 @@ test("Codex: presets map to approval policies", () => {
   assert.equal(policy("engine-default"), 'allowed_approval_policies = ["on-request"]');
   assert.equal(policy("ask"), 'allowed_approval_policies = ["untrusted"]');
   assert.equal(policy("allow"), 'allowed_approval_policies = ["never"]');
+});
+
+test("user mode: each engine's policy as environment or arguments, nothing on disk", () => {
+  const c = valid({ agents: ["opencosmo", "cosmodex", "cosmo-code"], models: { opencosmo: { allowed: ["anthropic/claude-sonnet-5-5"] } } });
+  const out = renderUserPolicy(c, ENV, { codexBundledCatalog: CATALOG }, { catalogPath: "/home/runner/.cosmo-agents/state/codex-models.json" });
+  // OpenCode: the same config as root mode, inline; project config still off.
+  const oc = JSON.parse(out.engineEnv.opencode.OPENCODE_CONFIG_CONTENT);
+  assert.deepEqual(oc.enabled_providers, ["anthropic"]);
+  assert.equal(oc.permission.external_directory, "deny");
+  assert.equal(out.engineEnv.opencode.OPENCODE_DISABLE_PROJECT_CONFIG, "1");
+  assert.equal(out.engineEnv.opencode.XDG_CONFIG_HOME, undefined);
+  // Codex: the proxy and the narrowed catalog as -c overrides; requirements keys don't apply.
+  assert.ok(out.codexArgs.includes('model_provider="proxy"'));
+  assert.ok(out.codexArgs.includes('model_providers.proxy.base_url="https://proxy.test/v1"'));
+  assert.ok(out.codexArgs.includes('model_catalog_json="/home/runner/.cosmo-agents/state/codex-models.json"'));
+  assert.ok(!out.codexArgs.some((a) => a.startsWith("allowed_")));
+  assert.deepEqual(out.codexCatalog.models.map((m) => m.slug), c.models.cosmodex.allowed);
+  // Cosmo Code: the managed settings without "managed rules only" (policy-tier allow rules are
+  // dropped, so the task's allow rules come through the flag tier).
+  const cc = JSON.parse(out.engineEnv.claude.COSMO_CODE_SETTINGS);
+  assert.equal(cc.allowManagedPermissionRulesOnly, undefined);
+  assert.equal(cc.allowManagedMcpServersOnly, true);
+  assert.deepEqual(cc.availableModels, c.models["cosmo-code"].allowed);
+  assert.equal(cc.permissions.disableBypassPermissionsMode, "disable");
+});
+
+test("user mode: a missing proxy route still fails", () => {
+  assert.throws(() => renderUserPolicy(valid({ agents: ["cosmodex"] }), {}, { codexBundledCatalog: CATALOG }, { catalogPath: "/x" }), RenderError);
+});
+
+test("-c overrides: one per leaf, dotted keys, TOML values", () => {
+  assert.deepEqual(toTomlOverrides({ a: "x", b: { c: true, d: ["y"] } }), ['a="x"', "b.c=true", 'b.d=["y"]']);
 });

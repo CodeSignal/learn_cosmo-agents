@@ -4,20 +4,36 @@
 //
 //   supervisor.mjs --daemon   detach and run in the background (what agentsim-start calls)
 //   supervisor.mjs            run in the foreground
+//
+// Without root (a platform image where setup runs as the session user), `--user --config
+// <agent-sim.json>` runs everything as that user: the supervisor validates the task config
+// itself and hands each engine its policy as it starts it (policy/render.mjs, renderUserPolicy).
+// Its state lives under `--state` (default ~/.cosmo-agents), outside the workspace.
 import fs from "node:fs";
 import crypto from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { listeningSockets, readTables, pidsForInodes, uidOf, descendsFrom } from "./procnet.mjs";
+import { validateTaskConfig } from "../policy/schema.mjs";
+import { renderUserPolicy, RenderError } from "../policy/render.mjs";
+import { bundledCodexCatalog } from "./codex-catalog.mjs";
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const RUN_DIR = "/run/agentsim";
+const argValue = (name) => {
+  const at = process.argv.indexOf(name);
+  return at > 0 ? process.argv[at + 1] : undefined;
+};
+const USER_MODE = process.argv.includes("--user");
+const BASE = path.resolve(argValue("--state") ?? path.join(os.homedir(), ".cosmo-agents"));
+const RUN_DIR = USER_MODE ? `${BASE}/run` : "/run/agentsim";
 const PID_FILE = `${RUN_DIR}/supervisor.pid`;
-const LOG_DIR = "/var/log/agentsim";
-const STATE_DIR = "/var/lib/agentsim";
+const LOG_DIR = USER_MODE ? `${BASE}/log` : "/var/log/agentsim";
+const STATE_DIR = USER_MODE ? `${BASE}/state` : "/var/lib/agentsim";
 const EVENTS_DIR = `${STATE_DIR}/events`;
-const POLICY = "/etc/agentsim/policy.json";
+// In user mode a record of the applied config (for run_solution); the processes get it from memory.
+const POLICY = USER_MODE ? `${STATE_DIR}/policy.json` : "/etc/agentsim/policy.json";
 const ENGINE_ENV = "/etc/agentsim/engine-env.json";
 const SESSION_USER = "runner";
 const WORKSPACE = "/usercode/FILESYSTEM";
@@ -56,7 +72,7 @@ function account(user) {
  */
 function socketOwners(inode, uid) {
   let pids = [...pidsForInodes(new Set([inode]))];
-  if (!pids.length && uid !== 0) {
+  if (!pids.length && uid !== 0 && process.getuid() === 0) {
     const acct = passwd().find((a) => a.uid === uid);
     const res = spawnSync(process.execPath, [path.join(APP, "root", "find-owners.mjs"), inode], {
       uid,
@@ -85,7 +101,9 @@ function alive(pid) {
 }
 
 function which(bin) {
-  for (const dir of ["/usr/local/bin", "/usr/bin", "/bin"]) {
+  // In user mode the engines are wherever npm installs global packages (on the caller's PATH).
+  const dirs = USER_MODE ? (process.env.PATH ?? "").split(":").filter(Boolean) : ["/usr/local/bin", "/usr/bin", "/bin"];
+  for (const dir of dirs) {
     if (fs.existsSync(path.join(dir, bin))) return path.join(dir, bin);
   }
   throw new Error(`${bin} is not installed`);
@@ -97,18 +115,24 @@ function which(bin) {
  * search (cosmetic: the agent can still read them).
  */
 function gitWorkspace() {
-  const acct = account(SESSION_USER);
   const script = [
     "[ -d .git ] || git init -q",
     'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
     'grep -qxF ".codesignal/" "$f" 2>/dev/null || echo ".codesignal/" >> "$f"',
   ].join(" && ");
+  if (USER_MODE) return spawnSync("sh", ["-c", script], { cwd: WORKSPACE, env: { PATH: "/usr/bin:/bin", HOME: os.homedir() } });
+  const acct = account(SESSION_USER);
   spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
 }
 
-/** The processes to keep running for this task's policy. */
-export function services({ policy, engineEnv, env = process.env, password = crypto.randomBytes(24).toString("base64url"), hostToken = crypto.randomBytes(24).toString("base64url") }) {
+/**
+ * The processes to keep running for this task's policy. In user mode every process runs as the
+ * caller (`user` null), the server gets the config itself rather than a path, and Codex gets
+ * its configuration as arguments.
+ */
+export function services({ policy, engineEnv, codexArgs = [], userMode = USER_MODE, env = process.env, password = crypto.randomBytes(24).toString("base64url"), hostToken = crypto.randomBytes(24).toString("base64url") }) {
   const proxy = Object.fromEntries(PROXY_ENV.filter((k) => env[k]).map((k) => [k, env[k]]));
+  const SESSION = userMode ? null : SESSION_USER;
   const list = [];
   const serverEnv = {
     PORT: "3000",
@@ -118,12 +142,13 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
     DIST_DIR: path.join(APP, "dist"),
     AGENTS_DIR: path.join(APP, "dist-agents"),
     WORKSPACE,
+    ...(userMode ? { POLICY_JSON: JSON.stringify(policy) } : {}),
   };
   if (policy.agents.includes("opencosmo")) {
     Object.assign(serverEnv, { OPENCODE_URL: `http://127.0.0.1:${OPENCODE_PORT}`, OPENCODE_SERVER_PASSWORD: password });
     list.push({
       name: "opencode",
-      user: SESSION_USER,
+      user: SESSION,
       cmd: which("opencode"),
       args: ["serve", "--hostname", "127.0.0.1", "--port", String(OPENCODE_PORT)],
       cwd: WORKSPACE,
@@ -137,10 +162,10 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
     serverEnv.CODEX_URL = `ws://127.0.0.1:${CODEX_PORT}`;
     list.push({
       name: "codex",
-      user: SESSION_USER,
+      user: SESSION,
       cmd: which("codex"),
       // Loopback only. The policy itself comes from /etc/codex/requirements.toml.
-      args: ["app-server", "--listen", `ws://127.0.0.1:${CODEX_PORT}`],
+      args: ["app-server", ...codexArgs, "--listen", `ws://127.0.0.1:${CODEX_PORT}`],
       cwd: WORKSPACE,
       env: { ...engineEnv.codex, ...proxy },
       port: CODEX_PORT,
@@ -150,7 +175,7 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
     serverEnv.CLAUDE_HOST_URL = `ws://127.0.0.1:${CLAUDE_PORT}/?token=${hostToken}`;
     list.push({
       name: "claude",
-      user: SESSION_USER,
+      user: SESSION,
       // The engine host (Agent SDK) drives the pinned engine; the policy itself comes from
       // /etc/claude-code/managed-settings.json, which the engine enforces.
       cmd: process.execPath,
@@ -164,18 +189,23 @@ export function services({ policy, engineEnv, env = process.env, password = cryp
         COSMO_CODE_TERMINAL: policy.terminal,
         WORKSPACE,
         CLAUDE_BIN: which("claude"),
+        ...(userMode ? { TERMINAL_SHELL: path.join(APP, "bin", "terminal-shell") } : {}),
       },
       port: CLAUDE_PORT,
       // The Changes pane needs a git repository, as in the original.
       prepare: gitWorkspace,
     });
   }
-  list.unshift({ name: "server", user: "agentsim", cmd: process.execPath, args: [path.join(APP, "server", "index.mjs")], env: serverEnv, port: 3000 });
+  list.unshift({ name: "server", user: userMode ? null : "agentsim", cmd: process.execPath, args: [path.join(APP, "server", "index.mjs")], env: serverEnv, port: 3000 });
   return list;
 }
 
 function start(svc) {
-  const acct = account(svc.user);
+  // In user mode (no `user`) the process runs as the caller, with the caller's PATH (where npm
+  // put the engines) and the release's own tools (bwrap) first.
+  const acct = svc.user ? account(svc.user) : { home: os.homedir() };
+  const ids = svc.user ? { uid: acct.uid, gid: acct.gid } : {};
+  const PATH = svc.user ? "/usr/local/bin:/usr/bin:/bin" : [path.join(APP, "vendor", "bin"), process.env.PATH].join(":");
   try {
     svc.prepare?.();
   } catch (e) {
@@ -183,10 +213,9 @@ function start(svc) {
   }
   const out = fs.openSync(`${LOG_DIR}/${svc.name}.log`, "a");
   const child = spawn(svc.cmd, svc.args, {
-    uid: acct.uid,
-    gid: acct.gid,
+    ...ids,
     cwd: svc.cwd || acct.home,
-    env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: acct.home, USER: svc.user, LANG: "C.UTF-8", ...svc.env },
+    env: { PATH, HOME: acct.home, USER: svc.user ?? os.userInfo().username, LANG: "C.UTF-8", ...svc.env },
     stdio: ["ignore", out, out],
     detached: true, // own process group, so a restart takes its children down too
   });
@@ -210,7 +239,7 @@ function checkPorts(list) {
   for (const svc of list) {
     if (!svc.port) continue;
     const owner = svc.child?.pid;
-    const ownerUid = account(svc.user).uid;
+    const ownerUid = svc.user ? account(svc.user).uid : process.getuid();
     for (const { inode, uid } of listeningSockets(readTables(), svc.port)) {
       for (const pid of socketOwners(inode, uid)) {
         if (owner && uid === ownerUid && descendsFrom(pid, owner)) continue;
@@ -226,16 +255,42 @@ function checkPorts(list) {
 }
 
 function run() {
+  if (USER_MODE) return supervise(applyAsUser());
   if (process.getuid() !== 0) throw new Error("the supervisor must run as root");
   if (!fs.existsSync(MARKER) || !fs.existsSync(POLICY)) throw new Error("no applied policy; run apply-policy first");
   for (const dir of [RUN_DIR, LOG_DIR, STATE_DIR]) fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
   const sim = account("agentsim");
   fs.mkdirSync(EVENTS_DIR, { recursive: true, mode: 0o755 });
   fs.chownSync(EVENTS_DIR, sim.uid, sim.gid);
-  fs.writeFileSync(PID_FILE, `${process.pid}\n`);
   const policy = JSON.parse(fs.readFileSync(POLICY, "utf8"));
   const engineEnv = JSON.parse(fs.readFileSync(ENGINE_ENV, "utf8"));
-  const list = services({ policy, engineEnv });
+  supervise(services({ policy, engineEnv }));
+}
+
+/** User mode: validate the task config once and render every engine's policy into memory. */
+function applyAsUser() {
+  const file = argValue("--config");
+  if (!file) throw new Error("--user needs --config <agent-sim.json>");
+  const result = validateTaskConfig(JSON.parse(fs.readFileSync(file, "utf8")));
+  if (!result.ok) throw new Error(`invalid ${file}: ${result.errors.join("; ")}`);
+  const policy = result.config;
+  for (const dir of [RUN_DIR, LOG_DIR, EVENTS_DIR]) fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  const catalogPath = `${STATE_DIR}/codex-models.json`;
+  const codexBundledCatalog = policy.agents.includes("cosmodex") ? bundledCodexCatalog() : undefined;
+  let rendered;
+  try {
+    rendered = renderUserPolicy(policy, process.env, { codexBundledCatalog }, { catalogPath });
+  } catch (e) {
+    throw e instanceof RenderError ? new Error(e.errors.join("; ")) : e;
+  }
+  if (rendered.codexCatalog) fs.writeFileSync(catalogPath, JSON.stringify(rendered.codexCatalog, null, 2) + "\n");
+  fs.writeFileSync(POLICY, JSON.stringify(policy, null, 2) + "\n");
+  log("applied", { mode: "user", agents: policy.agents });
+  return services({ policy, engineEnv: rendered.engineEnv, codexArgs: rendered.codexArgs });
+}
+
+function supervise(list) {
+  fs.writeFileSync(PID_FILE, `${process.pid}\n`);
   list.forEach(start);
   setInterval(() => checkPorts(list), CHECK_MS);
   const stop = () => {
@@ -247,6 +302,11 @@ function run() {
 }
 
 function daemonize() {
+  // Report a broken task config to the caller (setup) rather than only to the log.
+  if (USER_MODE) {
+    const result = validateTaskConfig(JSON.parse(fs.readFileSync(argValue("--config") ?? "", "utf8")));
+    if (!result.ok) throw new Error(`invalid task config: ${result.errors.join("; ")}`);
+  }
   const pid = Number(fs.existsSync(PID_FILE) ? fs.readFileSync(PID_FILE, "utf8") : 0);
   if (pid && alive(pid)) {
     console.log(`supervisor already running (pid ${pid})`);
@@ -254,7 +314,7 @@ function daemonize() {
   }
   fs.mkdirSync(LOG_DIR, { recursive: true, mode: 0o755 });
   const out = fs.openSync(`${LOG_DIR}/supervisor.log`, "a");
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2).filter((a) => a !== "--daemon")], {
     detached: true,
     stdio: ["ignore", out, out],
     env: process.env,
