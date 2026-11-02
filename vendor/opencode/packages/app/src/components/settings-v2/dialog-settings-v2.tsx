@@ -6,12 +6,14 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { SettingsGeneralV2 } from "./general"
 import { SettingsKeybinds } from "../settings-keybinds"
+import { SettingsProvidersV2 } from "./providers"
+import { SettingsModelsV2 } from "./models"
 import "./settings-v2.css"
 import { SettingsServersV2 } from "./servers"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
 import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
-import { LockedPanel } from "@/opencosmo-locked"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -19,6 +21,7 @@ export const DialogSettings: Component<{
 }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
+  const dialog = useDialog()
   const layout = useLayout()
   const tabs = useTabs()
   const serverSync = useServerSync()
@@ -33,6 +36,10 @@ export const DialogSettings: Component<{
     if (route.type === "session") return serverSync().session.get(route.sessionId)?.directory
     return undefined
   })
+
+  const showProviders = () => {
+    void dialog.show(() => <DialogSettings sessionID={props.sessionID} defaultValue="providers" />)
+  }
 
   return (
     <Dialog size="x-large" variant="settings" class="settings-v2-dialog">
@@ -96,11 +103,10 @@ export const DialogSettings: Component<{
           <SettingsServersV2 />
         </TabsV2.Content>
         <TabsV2.Content value="providers" class="settings-v2-panel">
-          {/* OpenCosmo: providers and models are the task's. */}
-          <LockedPanel title="Providers" />
+          <SettingsProvidersV2 directory={directory} onBack={showProviders} />
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
-          <LockedPanel title="Models" />
+          <SettingsModelsV2 />
         </TabsV2.Content>
       </TabsV2>
     </Dialog>
