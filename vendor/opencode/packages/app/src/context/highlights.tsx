@@ -7,8 +7,7 @@ import { useSettings } from "@/context/settings"
 import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
-// OpenCosmo: no upstream release highlights (and no request to opencode.ai).
-const CHANGELOG_URL: string = ""
+const CHANGELOG_URL = "https://opencode.ai/changelog.json"
 
 type Store = {
   version?: string
@@ -171,7 +170,6 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
         return
       }
 
-      if (!CHANGELOG_URL) return
       const fetcher = platform.fetch ?? fetch
       const controller = new AbortController()
       onCleanup(() => {

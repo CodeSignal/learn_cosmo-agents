@@ -33,7 +33,6 @@ import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { reviewTooltipKeybind } from "../command-tooltip-keybind"
 import { useTitlebarRightMount } from "../titlebar"
-import { terminalEnabled } from "@/opencosmo-task"
 
 const OPEN_APPS = [
   "vscode",
@@ -446,8 +445,6 @@ export function SessionHeader() {
                         <StatusPopover />
                       </Tooltip>
                     </Show>
-                    {/* OpenCosmo: no terminal toggle unless the task enables a terminal. */}
-                    <Show when={terminalEnabled()}>
                     <TooltipKeybind
                       title={language.t("command.terminal.toggle")}
                       keybind={command.keybind("terminal.toggle")}
@@ -463,7 +460,6 @@ export function SessionHeader() {
                         <Icon size="small" name={view().terminal.opened() ? "terminal-active" : "terminal"} />
                       </Button>
                     </TooltipKeybind>
-                    </Show>
 
                     <div class="hidden md:flex items-center gap-1 shrink-0">
                       <TooltipKeybind

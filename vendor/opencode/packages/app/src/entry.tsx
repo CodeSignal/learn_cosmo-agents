@@ -1,6 +1,6 @@
 // @refresh reload
 
-import { HashRouter } from "@solidjs/router"
+import * as Sentry from "@sentry/solid"
 import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
 import { loadInitialLocale } from "@/context/language"
@@ -10,7 +10,6 @@ import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { authFromToken } from "@/utils/server"
 import pkg from "../package.json"
-import "./opencosmo.css"
 import { ServerConnection } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
@@ -71,7 +70,7 @@ const notify: Platform["notify"] = async (title, description, onClick) => {
 
   const notification = new Notification(title, {
     body: description ?? "",
-    icon: new URL("favicon-96x96-v3.png", location.href).href,
+    icon: "https://opencode.ai/favicon-96x96-v3.png",
   })
 
   notification.onclick = () => {
@@ -81,26 +80,9 @@ const notify: Platform["notify"] = async (title, description, onClick) => {
   }
 }
 
-// OpenCosmo: OpenCode's own site (docs, feedback, help) is replaced by the simulation's help,
-// which the surrounding shell shows.
-const isUpstreamSite = (url: URL) => url.hostname === "opencode.ai" || url.hostname.endsWith(".opencode.ai")
-const openSimulationHelp = () => window.parent?.postMessage({ type: "agentsim:help" }, location.origin)
-
-document.addEventListener(
-  "click",
-  (event) => {
-    const link = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null
-    if (!link || !URL.canParse(link.href) || !isUpstreamSite(new URL(link.href))) return
-    event.preventDefault()
-    openSimulationHelp()
-  },
-  true,
-)
-
 const openExternal: Platform["openExternal"] = (value) => {
   if (!URL.canParse(value)) return
   const url = new URL(value)
-  if (isUpstreamSite(url)) return openSimulationHelp()
   if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "mailto:") return
   window.open(url.href, "_blank", "noopener,noreferrer")
 }
@@ -114,11 +96,11 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
 }
 
-// OpenCosmo: the engine is reached through the simulation's gateway on the same origin.
 const getCurrentUrl = () => {
-  if (import.meta.env.DEV && !import.meta.env.VITE_ENGINE_PATH)
+  if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
+  if (import.meta.env.DEV)
     return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
-  return new URL(import.meta.env.VITE_ENGINE_PATH ?? "/", location.origin).href.replace(/\/$/, "")
+  return location.origin
 }
 
 const getDefaultUrl = () => {
@@ -148,6 +130,25 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
 }
 
+if (import.meta.env.VITE_SENTRY_DSN) {
+  Sentry.init({
+    dsn: import.meta.env.VITE_SENTRY_DSN,
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
+    release: import.meta.env.VITE_SENTRY_RELEASE ?? `web@${pkg.version}`,
+    initialScope: {
+      tags: {
+        platform: "web",
+      },
+    },
+    integrations: (integrations) => {
+      return integrations.filter(
+        (i) =>
+          i.name !== "Breadcrumbs" && !(import.meta.env.OPENCODE_CHANNEL === "prod" && i.name === "GlobalHandlers"),
+      )
+    },
+  })
+}
+
 if (root instanceof HTMLElement) {
   void loadInitialLocale().then((locale) => {
     const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
@@ -168,9 +169,6 @@ if (root instanceof HTMLElement) {
               defaultServer={ServerConnection.Key.make(getDefaultUrl())}
               canonicalLocalServer={ServerConnection.key(server)}
               servers={[server]}
-              // OpenCosmo: served under a sub-path inside the simulation's iframe; routing in the
-              // hash keeps every route path exactly as upstream expects it.
-              router={HashRouter}
               disableHealthCheck
             />
           </AppBaseProviders>

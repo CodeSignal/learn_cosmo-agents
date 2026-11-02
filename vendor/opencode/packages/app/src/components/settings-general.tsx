@@ -31,7 +31,6 @@ import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { ExternalLink } from "./external-link"
 import { SettingsList } from "./settings-list"
-import { opencosmoLocked } from "@/opencosmo-locked"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -330,9 +329,7 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.general.row.shell.title")}
           description={language.t("settings.general.row.shell.description")}
         >
-          {/* OpenCosmo: the agent's shell is the task's. */}
           <Select
-            disabled={opencosmoLocked}
             data-action="settings-shell"
             options={shellOptions()}
             current={shellOptions().find((o) => o.value === currentShell()) ?? autoOption}
@@ -473,8 +470,6 @@ export const SettingsGeneral: Component = () => {
             value={(o) => o.value}
             label={(o) => o.label}
             onSelect={(option) => option && theme.setColorScheme(option.value)}
-            // OpenCosmo: follows the platform's light or dark theme.
-            disabled={theme.followsSystem()}
             variant="secondary"
             size="small"
             triggerVariant="settings"
@@ -697,8 +692,7 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.updates.row.check.title")}
           description={language.t("settings.updates.row.check.description")}
         >
-          {/* OpenCosmo: the engine's version is pinned. */}
-          <Button size="small" variant="secondary" disabled={opencosmoLocked || !updater.action().run} onClick={updater.run}>
+          <Button size="small" variant="secondary" disabled={!updater.action().run} onClick={updater.run}>
             {language.t(updater.action().label)}
           </Button>
         </SettingsRow>

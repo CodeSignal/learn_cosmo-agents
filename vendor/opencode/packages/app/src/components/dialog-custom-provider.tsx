@@ -13,15 +13,12 @@ import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
 import { type FormState, headerRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
-import { LockedDialog, opencosmoLocked } from "@/opencosmo-locked"
 
 type Props = {
   onBack: () => void
 }
 
 export function DialogCustomProvider(props: Props) {
-  // OpenCosmo: adding a provider is the task's choice, never the candidate's.
-  if (opencosmoLocked) return <LockedDialog title="Custom provider" />
   const language = useLanguage()
 
   return (

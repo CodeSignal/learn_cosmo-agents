@@ -1,7 +1,0 @@
-/* OpenCosmo: design-system typography. Unlayered, so it wins over the theme layer. */
-:root {
-  --font-family-sans: "Work Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-family-text: "Work Sans", ui-sans-serif, system-ui, sans-serif;
-  --v2-font-family-sans: "Work Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}

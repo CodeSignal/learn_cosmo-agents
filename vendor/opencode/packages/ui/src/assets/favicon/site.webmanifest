@@ -1,6 +1,6 @@
 {
-  "name": "OpenCosmo",
-  "short_name": "OpenCosmo",
+  "name": "OpenCode",
+  "short_name": "OpenCode",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -18,7 +18,7 @@
       "purpose": "maskable"
     }
   ],
-  "theme_color": "#060C1C",
-  "background_color": "#060C1C",
+  "theme_color": "#080808",
+  "background_color": "#080808",
   "display": "standalone"
 }
