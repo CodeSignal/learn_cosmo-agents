@@ -4,22 +4,15 @@ import { Tabs } from "@opencode-ai/ui/tabs"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { SettingsGeneral } from "./settings-general"
 import { SettingsKeybinds } from "./settings-keybinds"
-import { SettingsProviders } from "./settings-providers"
-import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
+import { LockedPanel } from "@/opencosmo-locked"
 
 export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
-  const dialog = useDialog()
   const [tab, setTab] = createSignal(props.defaultValue ?? "general")
-
-  const showProviders = () => {
-    void dialog.show(() => <DialogSettings defaultValue="providers" />)
-  }
 
   return (
     <Dialog size="x-large" transition>
@@ -83,10 +76,11 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
           <SettingsServers />
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">
-          <SettingsProviders onBack={showProviders} />
+          {/* OpenCosmo: providers and models are the task's. */}
+          <LockedPanel title="Providers" />
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
-          <SettingsModels />
+          <LockedPanel title="Models" />
         </Tabs.Content>
       </Tabs>
     </Dialog>

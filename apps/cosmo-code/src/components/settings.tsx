@@ -113,6 +113,7 @@ const PAGES: Partial<Record<SettingsPage, Section[]>> = {
             ["Software engineering", "Data science", "Product management", "Design", "Research", "Education", "Other"].map((l) => ({ value: l, label: l })),
             "select",
           ),
+          locked: NOT_HERE,
         },
         {
           label: "Instructions for Claude",
@@ -123,6 +124,7 @@ const PAGES: Partial<Record<SettingsPage, Section[]>> = {
             render: () => (
               <textarea
                 class="cc-settings-textarea"
+                disabled
                 aria-label="Instructions for Claude"
                 placeholder="e.g. keep explanations brief and to the point"
                 maxLength={4000}
@@ -131,6 +133,8 @@ const PAGES: Partial<Record<SettingsPage, Section[]>> = {
               />
             ),
           },
+          // What guides the agent is the task's (the engine host still takes instructions).
+          locked: NOT_HERE,
         },
       ],
     },

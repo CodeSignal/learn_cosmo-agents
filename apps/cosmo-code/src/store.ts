@@ -403,7 +403,6 @@ export async function send(text: string) {
         permissionMode: draft.mode,
         ...(state.draft.effort ? { effort: state.draft.effort } : {}),
         // Settings → General → Instructions for Claude, for the sessions started from now on.
-        ...(prefs.instructions.trim() ? { instructions: prefs.instructions.trim() } : {}),
       })
       setState("sessions", sessionId, {
         ...blankSession(sessionId, text.slice(0, 80)),

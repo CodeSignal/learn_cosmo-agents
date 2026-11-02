@@ -21,10 +21,13 @@ import { decode64 } from "@/utils/base64"
 import { SettingsListV2 } from "./settings-v2/parts/list"
 import { SettingsRowV2 } from "./settings-v2/parts/row"
 import "./settings-v2/settings-v2.css"
+import { LockedDialog, opencosmoLocked } from "@/opencosmo-locked"
 
 type ModelItem = ReturnType<ReturnType<typeof useLocal>["model"]["list"]>[number]
 
 export const DialogManageModels: Component = () => {
+  // OpenCosmo: the task lists the models.
+  if (opencosmoLocked) return <LockedDialog title="Manage models" />
   const local = useLocal()
   const language = useLanguage()
   const dialog = useDialog()
@@ -117,6 +120,7 @@ export const DialogManageModels: Component = () => {
 }
 
 export const DialogManageModelsV2: Component = () => {
+  if (opencosmoLocked) return <LockedDialog title="Manage models" />
   const local = useLocal()
   const language = useLanguage()
   const dialog = useDialog()
