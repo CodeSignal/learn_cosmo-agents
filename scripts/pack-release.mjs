@@ -41,6 +41,9 @@ export const FILES = [
   ["engines/claude-host/package.json", "engines/claude-host/package.json"],
   ["engines/claude-host/package-lock.json", "engines/claude-host/package-lock.json"],
   ["LICENSE", "LICENSE"],
+  // bwrap for user mode and its licence (LGPL-2.0+), when the build provides it (image/Dockerfile).
+  ["vendor/bwrap", "vendor/bin/bwrap", { optional: true }],
+  ["vendor/bwrap.copyright", "vendor/bwrap.copyright", { optional: true }],
   ["NOTICE", "NOTICE"],
 ];
 
@@ -70,7 +73,8 @@ async function main() {
       logLevel: "warning",
     });
   }
-  for (const [from, to] of FILES) {
+  for (const [from, to, { optional } = {}] of FILES) {
+    if (optional && !fs.existsSync(path.join(ROOT, from))) continue;
     fs.cpSync(path.join(ROOT, from), path.join(PACK, to), { recursive: true, filter: shipped });
   }
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));

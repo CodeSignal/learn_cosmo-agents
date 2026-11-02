@@ -285,8 +285,10 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath } 
   if (engines.has("codex")) {
     catalog = codexCatalog(inputs.codexBundledCatalog, config, errors);
     // The approval policy can't be configured here ("untrusted" only comes from requirements): the
-    // gateway sets the task's on every new thread.
-    codexArgs = toTomlOverrides(codexConfig(env, catalogPath, errors)).flatMap((o) => ["-c", o]);
+    // gateway sets the task's on every new thread. The sandbox default is Codex's own (read-only)
+    // otherwise, under which an approved edit can't even create a folder.
+    const sandbox_mode = config.sandbox ? "workspace-write" : "danger-full-access";
+    codexArgs = toTomlOverrides({ ...codexConfig(env, catalogPath, errors), sandbox_mode }).flatMap((o) => ["-c", o]);
     engineEnv.codex = {};
   }
   if (engines.has("claude")) {

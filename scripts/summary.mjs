@@ -76,6 +76,9 @@ const tamper = supervisor.filter((e) => e.type === "tamper");
 // The supervisor killed something holding a service's port (an agent squatting it).
 out.push(`Tampering: ${tamper.length ? tally(tamper.reduce((c, e) => add(c, `${e.service ?? "service"} port taken`), {})) : "none"}`);
 out.push(`Engine restarts: ${supervisor.filter((e) => e.type === "exit").length}`);
+// User mode: whether the engines ran in their sandboxed view (root mode has root-owned policies).
+const sandbox = supervisor.filter((e) => e.type === "sandbox").at(-1);
+if (sandbox) out.push(`Engine sandbox: ${sandbox.state}${sandbox.error ? ` (${sandbox.error})` : ""}`);
 
 out.push("", "## TURNS");
 const turns = events.filter((e) => e.type === "turn");

@@ -97,25 +97,31 @@ bypass the proxy.
 
 ### What holds without root
 
-Everything runs as the session user, as with the platform's terminal agent provisioning, so
-files that user owns are advisory. What the candidate and the agent can't get around:
+Everything runs as the session user, as with the platform's terminal agent provisioning. What
+keeps the agents to the task:
 
+- **Each engine's own view.** The supervisor starts every engine (and so every command its agent
+  runs) in a `bwrap` sandbox: the workspace is writable except the task's own files
+  (`.codesignal/`, `main.sh`, read-only), the rest of `/usercode` and the simulation's folder in
+  the home are hidden except the engine binaries and the release code, and the engine sees only
+  its own processes, never the server's or the supervisor's (or their secrets in `/proc`). The
+  release carries Ubuntu 22.04's `bwrap`; the platform allows the user namespaces it needs. If it
+  can't start, the engines run without it and the summary says `Engine sandbox: off`.
 - **The gateways.** Every request a UI sends passes the server's allowlists: models, permission
   modes, approval policies and sandboxes outside the task are refused, as are configuration,
   sign-in, MCP and files outside the workspace. The UIs show refusals like the original's
   managed settings.
 - **Policies from memory.** Each engine gets the task's policy from the supervisor when it
   starts (OpenCode as inline config, Codex as `-c` overrides, Cosmo Code as policy-tier settings
-  from the engine host), so editing a config file on disk changes nothing the running session
-  enforces. User- and project-level config files still load, as with any user-level setup.
+  from the engine host), so editing a config file changes nothing the session enforces.
+  User- and project-level config files still load, as with any user-level setup.
 - **Permission prompts** (`permissions` in the task config): with the default `ask`, the agent
-  can only change a file or run a command the candidate approves.
+  can only change a file or run a command the candidate approves; the engines' own command
+  sandboxes run inside the view.
 - **The proxy key's model allowlist.**
 
-The supervisor restarts an engine or server that stops, and replaces a process that takes over
-their ports, but the agent runs as the same user and could stop the supervisor too. The
-engines' command sandboxes need `bwrap`; when the image has none, setup unpacks the
-distribution's package if it can, and agents' commands otherwise run unsandboxed.
+The engines share the session's network (they need the proxy), so an agent's command can reach
+the server on :3000 like the browser does.
 
 ### Root mode
 

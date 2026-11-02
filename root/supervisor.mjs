@@ -111,18 +111,50 @@ function which(bin) {
 
 /**
  * The workspace as a git repository (engines show changes against it), with the task's own
- * files (.codesignal) in the repo-local exclude list, so they stay out of change lists and file
+ * files (.codesignal, main.sh) in the repo-local exclude list, so they stay out of change lists and file
  * search (cosmetic: the agent can still read them).
  */
 function gitWorkspace() {
   const script = [
     "[ -d .git ] || git init -q",
     'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
-    'grep -qxF ".codesignal/" "$f" 2>/dev/null || echo ".codesignal/" >> "$f"',
+    ...["/.codesignal/", "/main.sh"].map((p) => `{ grep -qxF "${p}" "$f" 2>/dev/null || echo "${p}" >> "$f"; }`),
   ].join(" && ");
   if (USER_MODE) return spawnSync("sh", ["-c", script], { cwd: WORKSPACE, env: { PATH: "/usr/bin:/bin", HOME: os.homedir() } });
   const acct = account(SESSION_USER);
   spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
+}
+
+// The task's own files in the workspace: an agent may read them but never change them.
+const TASK_FILES = [".codesignal", "main.sh"];
+
+/**
+ * User mode: the filesystem and processes an engine (and every command its agent runs) sees. The
+ * workspace is writable except the task's own files; the rest of /usercode is hidden, and so is
+ * the simulation's folder in the home except the engines and the release code (state, logs and
+ * records stay out of reach). The engine sees only its own processes, so neither the server nor
+ * this supervisor, nor their secrets in /proc.
+ */
+export function engineView({ home = os.homedir(), base = BASE, app = APP, workspace = WORKSPACE, visible = [], exists = fs.existsSync } = {}) {
+  const ro = (p) => ["--ro-bind", p, p];
+  return [
+    "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+    "--bind", home, home, "--tmpfs", base, ...ro(path.join(base, "engines")), ...ro(app), ...visible.flatMap(ro),
+    "--tmpfs", path.dirname(workspace), "--bind", workspace, workspace,
+    ...TASK_FILES.map((f) => path.join(workspace, f)).filter((f) => exists(f)).flatMap(ro),
+    "--unshare-pid", "--die-with-parent",
+  ];
+}
+
+/** The bwrap that works here (the release's own first), or null. */
+function sandboxTool() {
+  for (const bwrap of [path.join(APP, "vendor", "bin", "bwrap"), ...(process.env.PATH ?? "").split(":").map((d) => path.join(d, "bwrap"))]) {
+    if (!fs.existsSync(bwrap)) continue;
+    const probe = spawnSync(bwrap, ["--ro-bind", "/", "/", "--unshare-pid", "true"], { encoding: "utf8", timeout: 10_000 });
+    if (probe.status === 0) return { bwrap };
+    return { error: (probe.stderr || probe.error?.message || `exit ${probe.status}`).trim().slice(0, 200) };
+  }
+  return { error: "no bwrap" };
 }
 
 /**
@@ -130,7 +162,7 @@ function gitWorkspace() {
  * caller (`user` null), the server gets the config itself rather than a path, and Codex gets
  * its configuration as arguments.
  */
-export function services({ policy, engineEnv, codexArgs = [], userMode = USER_MODE, env = process.env, password = crypto.randomBytes(24).toString("base64url"), hostToken = crypto.randomBytes(24).toString("base64url") }) {
+export function services({ policy, engineEnv, codexArgs = [], userMode = USER_MODE, sandbox = null, env = process.env, password = crypto.randomBytes(24).toString("base64url"), hostToken = crypto.randomBytes(24).toString("base64url") }) {
   const proxy = Object.fromEntries(PROXY_ENV.filter((k) => env[k]).map((k) => [k, env[k]]));
   const SESSION = userMode ? null : SESSION_USER;
   const list = [];
@@ -195,6 +227,13 @@ export function services({ policy, engineEnv, codexArgs = [], userMode = USER_MO
       // The Changes pane needs a git repository, as in the original.
       prepare: gitWorkspace,
     });
+  }
+  // In user mode each engine runs in its own view (engineView) when bwrap works here.
+  if (sandbox) {
+    for (const svc of list) {
+      svc.args = [...sandbox.view, "--", svc.cmd, ...svc.args];
+      svc.cmd = sandbox.bwrap;
+    }
   }
   list.unshift({ name: "server", user: userMode ? null : "agentsim", cmd: process.execPath, args: [path.join(APP, "server", "index.mjs")], env: serverEnv, port: 3000 });
   return list;
@@ -286,7 +325,10 @@ function applyAsUser() {
   if (rendered.codexCatalog) fs.writeFileSync(catalogPath, JSON.stringify(rendered.codexCatalog, null, 2) + "\n");
   fs.writeFileSync(POLICY, JSON.stringify(policy, null, 2) + "\n");
   log("applied", { mode: "user", agents: policy.agents });
-  return services({ policy, engineEnv: rendered.engineEnv, codexArgs: rendered.codexArgs });
+  const tool = sandboxTool();
+  log("sandbox", tool.bwrap ? { state: "on" } : { state: "off", error: tool.error });
+  const sandbox = tool.bwrap ? { bwrap: tool.bwrap, view: engineView({ visible: rendered.codexCatalog ? [catalogPath] : [] }) } : null;
+  return services({ policy, engineEnv: rendered.engineEnv, codexArgs: rendered.codexArgs, sandbox });
 }
 
 function supervise(list) {

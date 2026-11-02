@@ -235,6 +235,7 @@ test("user mode: each engine's policy as environment or arguments, nothing on di
   assert.ok(out.codexArgs.includes('model_providers.proxy.base_url="https://proxy.test/v1"'));
   assert.ok(out.codexArgs.includes('model_catalog_json="/home/runner/.cosmo-agents/state/codex-models.json"'));
   assert.ok(!out.codexArgs.some((a) => a.startsWith("allowed_")));
+  assert.ok(out.codexArgs.includes('sandbox_mode="workspace-write"'));
   assert.deepEqual(out.codexCatalog.models.map((m) => m.slug), c.models.cosmodex.allowed);
   // Cosmo Code: the managed settings without "managed rules only" (policy-tier allow rules are
   // dropped, so the task's allow rules come through the flag tier).

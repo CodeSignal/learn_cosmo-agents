@@ -1,9 +1,9 @@
 #!/bin/sh
 # Starts the simulation as the session user, for a platform image where setup has no root: the
 # pinned engines the task uses are installed with npm into the simulation's own folder (whatever
-# else the image has installed globally), then the engine host's dependencies and, when the
-# system has none, bwrap for the agents' command sandboxes. Then the supervisor starts in user
-# mode, and this returns once the server answers. The base task's setup.sh runs it from the unpacked release.
+# else the image has installed globally), then the engine host's dependencies. Then the supervisor
+# starts in user mode (each engine in its own sandbox, with the bwrap the release carries), and
+# this returns once the server answers. The base task's setup.sh runs it from the unpacked release.
 #   sh scripts/session-setup.sh <agent-sim.json>
 set -eu
 APP=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,17 +37,10 @@ if echo "$engines" | grep -q '@anthropic-ai/claude-code' && [ ! -d "$APP/engines
   (cd "$APP/engines/claude-host" && npm ci --omit=optional --no-fund --no-audit >>"$LOG" 2>&1) || { say "npm ci failed; see $LOG"; exit 1; }
 fi
 
-# bwrap without root: the distribution's package, unpacked (user namespaces do the rest).
-if ! command -v bwrap >/dev/null 2>&1 && [ ! -x "$APP/vendor/bin/bwrap" ] && command -v apt-get >/dev/null 2>&1; then
-  tmp=$(mktemp -d)
-  if (cd "$tmp" && apt-get download bubblewrap >>"$LOG" 2>&1 && dpkg -x bubblewrap_*.deb x) && [ -x "$tmp/x/usr/bin/bwrap" ]; then
-    mkdir -p "$APP/vendor/bin" && cp "$tmp/x/usr/bin/bwrap" "$APP/vendor/bin/bwrap"
-    say "bwrap unpacked for the agents' sandboxes"
-  else
-    say "no bwrap: the agents' command sandboxes are unavailable"
-  fi
-  rm -rf "$tmp"
-fi
+# The workspace folder belongs to root on the platform, so git refuses it for the session user
+# (the changes view, file search, the engines' project detection) unless it is marked safe.
+WORKSPACE=/usercode/FILESYSTEM
+git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$WORKSPACE" || git config --global --add safe.directory "$WORKSPACE"
 
 node "$APP/root/supervisor.mjs" --user --config "$CONFIG" --state "$STATE" --daemon
 for _ in $(seq 60); do

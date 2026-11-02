@@ -16,6 +16,12 @@ RUN cd packages/app && OPENCOSMO_BASE=/agents/opencosmo/ VITE_ENGINE_PATH=/engin
 RUN cd packages/cosmodex && COSMODEX_BASE=/agents/cosmodex/ VITE_ENGINE_PATH=/engine/cosmodex VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
 RUN cd packages/cosmo-code && COSMO_CODE_BASE=/agents/cosmo-code/ VITE_ENGINE_PATH=/engine/cosmo-code VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
 
+# bwrap for user mode (the platform's standard image has none and setup has no root to install
+# it): the binary from Ubuntu 22.04's package, which matches that image's libraries.
+FROM ubuntu:22.04 AS bwrap
+RUN apt-get update && cd /tmp && apt-get download bubblewrap && dpkg -x bubblewrap_*.deb /out \
+    && cp /out/usr/share/doc/bubblewrap/copyright /out/bwrap.copyright
+
 # The release tarball (scripts/pack-release.mjs): the shell, the bundled server and helpers, the UIs.
 FROM node:22-bookworm AS pack
 WORKDIR /src
@@ -33,6 +39,7 @@ COPY engines/claude-host/host.mjs ./engines/claude-host/
 COPY --from=ui /work/packages/app/dist ./dist-agents/opencosmo
 COPY --from=ui /work/packages/cosmodex/dist ./dist-agents/cosmodex
 COPY --from=ui /work/packages/cosmo-code/dist ./dist-agents/cosmo-code
+COPY --from=bwrap /out/usr/bin/bwrap /out/bwrap.copyright ./vendor/
 RUN node scripts/pack-release.mjs
 
 FROM scratch AS release
