@@ -110,8 +110,10 @@ export function codexCeilings(config) {
     approvalPolicies: CODEX_APPROVAL[config.permissions.preset],
     sandboxModes: config.sandbox ? ["read-only", "workspace-write"] : ["read-only", "workspace-write", "danger-full-access"],
     webSearchModes: config.webTools ? ["disabled", "cached", "live"] : ["disabled"],
-    // "Approve for me": Codex's review agent answers approval requests instead of the candidate.
+    // "Approve for me": Codex's review agent answers approval requests instead of the candidate,
+    // under the on-request policy it works with (the gateway pairs the two).
     reviewers: config.permissions.auto ? ["user", "auto_review"] : ["user"],
+    reviewerPolicy: config.permissions.auto ? "on-request" : null,
   };
 }
 
@@ -146,7 +148,7 @@ function codexConfig(env, catalogPath, errors) {
 
 function codexRequirements(config, env, errors) {
   return {
-    allowed_approval_policies: codexCeilings(config).approvalPolicies,
+    allowed_approval_policies: [...new Set([...codexCeilings(config).approvalPolicies, ...(codexCeilings(config).reviewerPolicy ? [codexCeilings(config).reviewerPolicy] : [])])],
     allowed_sandbox_modes: codexCeilings(config).sandboxModes,
     allowed_web_search_modes: codexCeilings(config).webSearchModes,
     allowed_login_methods: ["api"],

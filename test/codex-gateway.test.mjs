@@ -44,8 +44,14 @@ test("thread setup: models, approval policy and sandbox within the task; setup o
   assert.match(reason("thread/start", { approvalsReviewer: "auto_review" }), /approval reviewer/);
   assert.equal(reason("thread/start", { approvalsReviewer: "user" }), undefined);
   // "Approve for me" when the task offers auto mode; still no other reviewer.
-  const auto = { ...ctx, reviewers: ["user", "auto_review"] };
-  assert.equal(checkParams("turn/start", { threadId: "t", input: [], approvalsReviewer: "auto_review" }, auto).reason, undefined);
+  const auto = { ...ctx, reviewers: ["user", "auto_review"], reviewerPolicy: "on-request" };
+  const turn = (extra) => checkParams("turn/start", { threadId: "t", input: [], ...extra }, auto);
+  // The review agent works under on-request; answering yourself keeps the task's policy.
+  assert.equal(turn({ approvalsReviewer: "auto_review" }).params.approvalPolicy, "on-request");
+  assert.equal(turn({ approvalsReviewer: "user" }).params.approvalPolicy, ctx.approvalPolicies[0]);
+  // on-request only with the review agent.
+  assert.match(turn({ approvalsReviewer: "user", approvalPolicy: "on-request" }).reason, /approval policy/);
+  assert.match(turn({ approvalPolicy: "on-request" }).reason, /approval policy/);
   assert.match(checkParams("turn/start", { threadId: "t", input: [], approvalsReviewer: "guardian_subagent" }, auto).reason, /approval reviewer/);
   assert.match(reason("thread/start", { cwd: "/etc" }), /outside/);
 });

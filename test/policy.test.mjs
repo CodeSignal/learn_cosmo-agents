@@ -95,7 +95,8 @@ test("a provider without its proxy URL fails rendering (no silent bypass)", () =
 test("Codex requirements pin provider, approvals, sandbox, search and login", () => {
   const c = valid({ agents: ["cosmodex"], models: { cosmodex: { allowed: ["gpt-5.6-terra"] } } });
   const toml = file(renderPolicy(c, ENV, { codexBundledCatalog: CATALOG }), ROOT.codexRequirements);
-  assert.match(toml, /^allowed_approval_policies = \["untrusted"\]$/m); // the default "ask" preset
+  // The default "ask" preset, and on-request for "Approve for me" (auto mode is on by default).
+  assert.match(toml, /^allowed_approval_policies = \["untrusted", "on-request"\]$/m);
   assert.match(toml, /^allowed_sandbox_modes = \["read-only", "workspace-write"\]$/m);
   assert.match(toml, /^allowed_web_search_modes = \["disabled"\]$/m);
   assert.match(toml, /^allowed_login_methods = \["api"\]$/m);
@@ -233,10 +234,11 @@ test("Claude Code: an allowed command under 'ask everything' relies on the defau
 });
 
 test("Codex: presets map to approval policies", () => {
-  const policy = (preset) => file(renderPolicy(valid({ agents: ["cosmodex"], permissions: { preset } }), ENV, { codexBundledCatalog: CATALOG }), ROOT.codexRequirements).match(/^allowed_approval_policies = .*$/m)[0];
+  const policy = (preset, auto = false) => file(renderPolicy(valid({ agents: ["cosmodex"], permissions: { preset, auto } }), ENV, { codexBundledCatalog: CATALOG }), ROOT.codexRequirements).match(/^allowed_approval_policies = .*$/m)[0];
   assert.equal(policy("engine-default"), 'allowed_approval_policies = ["on-request"]');
   assert.equal(policy("ask"), 'allowed_approval_policies = ["untrusted"]');
   assert.equal(policy("allow"), 'allowed_approval_policies = ["never"]');
+  assert.equal(policy("ask", true), 'allowed_approval_policies = ["untrusted", "on-request"]');
 });
 
 test("user mode: each engine's policy as environment or arguments, nothing on disk", () => {

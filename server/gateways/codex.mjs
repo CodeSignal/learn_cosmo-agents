@@ -47,7 +47,12 @@ export function checkParams(method, params = {}, ctx) {
     for (const key of SETUP_KEYS) if (has(key)) return { reason: CONFIG_REASON(key) };
     if (has("approvalsReviewer") && !(ctx.reviewers ?? ["user"]).includes(p.approvalsReviewer)) return { reason: "the approval reviewer" };
     if (has("model") && !ctx.models.includes(p.model)) return { reason: `the model (${String(p.model).slice(0, 40)} isn't available in this task)` };
-    if (has("approvalPolicy") && !(typeof p.approvalPolicy === "string" && ctx.approvalPolicies.includes(p.approvalPolicy))) {
+    // "Approve for me" works under on-request; the candidate answering keeps the task's policy.
+    if (has("approvalsReviewer") && !has("approvalPolicy")) {
+      p.approvalPolicy = p.approvalsReviewer === "auto_review" ? ctx.reviewerPolicy : ctx.approvalPolicies[0];
+    }
+    const reviewed = p.approvalsReviewer === "auto_review" && p.approvalPolicy === ctx.reviewerPolicy;
+    if (has("approvalPolicy") && !reviewed && !(typeof p.approvalPolicy === "string" && ctx.approvalPolicies.includes(p.approvalPolicy))) {
       return { reason: "the approval policy" };
     }
     if (has("sandbox") && !ctx.sandboxModes.includes(p.sandbox)) return { reason: "the sandbox" };
