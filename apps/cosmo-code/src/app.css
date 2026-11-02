@@ -299,6 +299,14 @@ button:disabled {
 }
 .cc-new {
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cc-mascot {
+  width: 72px;
+  height: 72px;
+  image-rendering: pixelated;
 }
 .cc-transcript {
   width: min(var(--cc-column), calc(100% - 48px));

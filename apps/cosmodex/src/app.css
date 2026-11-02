@@ -287,9 +287,9 @@ button:disabled {
   gap: 16px;
 }
 .cx-mark {
-  width: 48px;
-  height: 48px;
-  color: var(--v2-text-text-accent);
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
 }
 .cx-home-title {
   margin: 0;

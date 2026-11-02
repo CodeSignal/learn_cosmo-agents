@@ -14,13 +14,8 @@ import { TableDialog } from "./components/rich-markdown"
 import { TabsToggle } from "./components/thread"
 
 function Mark() {
-  // An orbit around a dot: Cosmodex's mark.
-  return (
-    <svg class="cx-mark" viewBox="0 0 48 48" aria-hidden="true">
-      <circle cx="24" cy="24" r="6" fill="currentColor" />
-      <ellipse cx="24" cy="24" rx="20" ry="9" fill="none" stroke="currentColor" stroke-width="2.5" transform="rotate(-25 24 24)" />
-    </svg>
-  )
+  // Cosmo, the simulation's mascot (pixel art, served by the shell), where the original shows its mark.
+  return <img class="cx-mark" src="/cosmo.svg" alt="" />
 }
 
 /** Home and chats show the tabs pane; other pages don't. */

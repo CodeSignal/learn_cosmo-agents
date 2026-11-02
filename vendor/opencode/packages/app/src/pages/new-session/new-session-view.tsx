@@ -39,6 +39,8 @@ export function NewSessionView(props: {
       >
         <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
           <div class={NEW_SESSION_CONTENT_WIDTH}>
+            {/* OpenCosmo: Cosmo, the simulation's mascot (pixel art, served by the shell). */}
+            <img src="/cosmo.svg" alt="" class="mx-auto mb-6 size-16" style={{ "image-rendering": "pixelated" }} />
             <WordmarkV2 class="h-auto w-full text-v2-background-bg-inverse" />
             <div class="mt-8 flex flex-col gap-8">
               <PromptInputV2Composer controller={props.input} />

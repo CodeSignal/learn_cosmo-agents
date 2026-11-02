@@ -108,7 +108,15 @@ export function App() {
             <div class="cc-banner">{state.engine === "reconnecting" ? "Reconnecting to Claude…" : "Starting Claude…"}</div>
           </Show>
           <div class="cc-scroll" ref={follow}>
-            <Show when={activeSession()} fallback={<div class="cc-new" />}>
+            <Show
+              when={activeSession()}
+              fallback={
+                <div class="cc-new">
+                  {/* Cosmo, the simulation's mascot (pixel art, served by the shell). */}
+                  <img class="cc-mascot" src="/cosmo.svg" alt="" />
+                </div>
+              }
+            >
               {(s) => <Transcript session={s()} />}
             </Show>
           </div>
