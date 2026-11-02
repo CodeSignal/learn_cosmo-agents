@@ -60,8 +60,12 @@ export function transitionPromptInputV2(
   state: PromptInputV2InteractionState,
   event: PromptInputV2InteractionEvent,
   persisted: PromptInputV2PersistedState,
+  // OpenCosmo: when false, a leading "!" is plain text instead of switching to shell mode.
+  options: { shell?: boolean } = {},
 ): PromptInputV2Transition {
-  if (event.type === "input.changed") return inputChanged(state, event.value, event.persist !== false, persisted.cursor)
+  if (event.type === "mode.shell" && options.shell === false) return unchanged(state)
+  if (event.type === "input.changed")
+    return inputChanged(state, event.value, event.persist !== false, persisted.cursor, options.shell !== false)
   if (event.type === "commands.open") return openCommands(state, persisted)
   if (event.type === "context.open") return openContext(state, persisted)
   if (event.type === "popover.query") return queryChanged(state, event.value)
@@ -86,9 +90,10 @@ function inputChanged(
   value: string,
   persist: boolean,
   cursor: number | undefined,
+  shell = true,
 ): PromptInputV2Transition {
   const setText: PromptInputV2InteractionCommand[] = persist ? [{ type: "draft.setText", value }] : []
-  if (state.mode === "normal" && value === "!") {
+  if (shell && state.mode === "normal" && value === "!") {
     return changed({ ...state, mode: "shell", popover: { type: "closed" }, focus: "editor" }, [
       { type: "draft.setText", value: "" },
     ])

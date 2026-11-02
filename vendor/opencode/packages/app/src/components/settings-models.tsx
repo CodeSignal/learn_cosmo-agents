@@ -1,5 +1,6 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
+import { vendorHidden } from "@/opencosmo-task"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -110,7 +111,10 @@ const SettingsModelsContent: Component = () => {
               {(group) => (
                 <div class="flex flex-col gap-1">
                   <div class="flex items-center gap-2 pb-2">
-                    <ProviderIcon id={group.category} class="size-5 shrink-0 icon-strong-base" />
+                    <ProviderIcon
+                      id={vendorHidden() ? "synthetic" : group.category}
+                      class="size-5 shrink-0 icon-strong-base"
+                    />
                     <span class="text-14-medium text-text-strong">{group.items[0].provider.name}</span>
                   </div>
                   <SettingsList>
