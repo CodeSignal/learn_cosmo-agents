@@ -124,6 +124,18 @@ export class EngineLink {
  * @param observe     { call(method, params, result), notify(msg) }: sees every call the engine
  *                    answered and every notification (the turn record)
  */
+/** Several observers as one; one that throws doesn't stop the others. */
+export function observers(...list) {
+  const each = (fn) => list.forEach((o) => {
+    try {
+      fn(o);
+    } catch {
+      /* an observer never breaks the gateway */
+    }
+  });
+  return { call: (...a) => each((o) => o?.call?.(...a)), notify: (m) => each((o) => o?.notify?.(m)) };
+}
+
 export function createJsonRpcGateway({ name, agent, url, handshake, methods, terminal = false, check, ask, answer, resolvedId = () => undefined, observe, events }) {
   const gateway = new RouteGateway({ name, rules: [], events });
   const clients = new Set();

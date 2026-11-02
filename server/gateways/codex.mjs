@@ -1,7 +1,8 @@
 // Cosmodex's gateway to `codex app-server` (JSON-RPC over a loopback WebSocket; see jsonrpc.mjs).
 // Only classified methods pass, and their parameters are checked against what the task allows.
 import path from "node:path";
-import { createJsonRpcGateway } from "./jsonrpc.mjs";
+import { createJsonRpcGateway, observers } from "./jsonrpc.mjs";
+import { createTranscript } from "../transcript.mjs";
 import { createTurnRecorder, inputText } from "../turns.mjs";
 import { METHODS, DECISIONS, USER_INPUT, CODEX_VERSION } from "./codex-methods.mjs";
 import STABLE_PARAMS from "./codex-params.json" with { type: "json" };
@@ -131,7 +132,54 @@ export function codexTurns(turns) {
   };
 }
 
-export function createCodexGateway({ url, workspace, terminal, ceilings, events, agent = "cosmodex" }) {
+const FILE_ACTION = { add: "ai_write", delete: "ai_delete", update: "ai_edit" };
+
+/** The transcript record (server/transcript.mjs) from app-server traffic. Codex reports approval
+ * policies as its modes, as the provisioner does. */
+export function codexTranscript(t) {
+  return {
+    call(method, params, result) {
+      if (THREAD_SETUP.has(method)) {
+        const id = result?.thread?.id;
+        t.model(id, result?.model);
+        t.mode(id, result?.approvalPolicy);
+      } else if (method === "turn/start" || method === "turn/steer") {
+        t.model(params?.threadId, params?.model);
+        t.mode(params?.threadId, params?.approvalPolicy);
+        t.prompt(params?.threadId, inputText(params?.input));
+      }
+    },
+    notify(msg) {
+      const p = msg.params ?? {};
+      const item = p.item;
+      if (msg.method === "item/completed" && item) {
+        const id = p.threadId;
+        const failed = ["failed", "declined"].includes(item.status);
+        if (item.type === "agentMessage") t.text(id, item.text);
+        else if (item.type === "commandExecution") {
+          t.tool(id, { callId: item.id, name: "commandExecution" });
+          t.command(id, { command: item.command, output: item.aggregatedOutput ?? undefined, exitCode: item.exitCode ?? undefined });
+          t.result(id, { callId: item.id, isError: failed || (item.exitCode ?? 0) !== 0, errorText: item.aggregatedOutput ?? item.status });
+        } else if (item.type === "fileChange") {
+          t.tool(id, { callId: item.id, name: "fileChange" });
+          for (const c of item.changes ?? []) t.file(id, { path: c.path, action: FILE_ACTION[c.kind?.type] ?? "ai_edit" });
+          t.result(id, { callId: item.id, isError: failed, errorText: item.status });
+        } else if (!NOT_TOOLS.has(item.type)) {
+          t.tool(id, { callId: item.id, name: item.type === "mcpToolCall" ? `mcp:${item.server}/${item.tool}` : item.type });
+          if (failed) t.result(id, { callId: item.id, isError: true, errorText: item.status });
+        }
+      } else if (msg.method === "thread/tokenUsage/updated") {
+        const u = p.tokenUsage?.last;
+        if (u) t.tokens(p.threadId, { input_tokens: u.inputTokens, output_tokens: u.outputTokens, cached_input_tokens: u.cachedInputTokens, reasoning_output_tokens: u.reasoningOutputTokens, total_tokens: u.totalTokens });
+      } else if (msg.method === "turn/completed") t.end(p.threadId);
+    },
+  };
+}
+
+/**
+ * @param transcripts  where the transcript record goes (<workspace>/.codesignal), or none
+ */
+export function createCodexGateway({ url, workspace, terminal, ceilings, events, agent = "cosmodex", transcripts }) {
   const ctx = { workspace: workspace.replace(/\/+$/, ""), ...ceilings };
 
   async function refreshSkills(link) {
@@ -175,6 +223,9 @@ export function createCodexGateway({ url, workspace, terminal, ceilings, events,
       return { result: { decision: result.decision }, reply: result.decision };
     },
     resolvedId: (msg) => (msg.method === "serverRequest/resolved" ? msg.params?.requestId : undefined),
-    observe: codexTurns(createTurnRecorder({ events, gateway: "codex", agent })),
+    observe: observers(
+      codexTurns(createTurnRecorder({ events, gateway: "codex", agent })),
+      codexTranscript(createTranscript({ dir: transcripts && `${transcripts}/codex`, agent, project: workspace, modeKey: "approval" })),
+    ),
   });
 }

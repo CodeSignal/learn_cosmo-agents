@@ -171,11 +171,20 @@ the standard image.
 2. `## TURNS`: one line per prompt: time, agent, session, the prompt (JSON-quoted), how the turn
    ended and the tools it used.
 3. The applied setup, the raw event log and the supervisor's log.
-4. Transcripts extracted into `.codesignal/<engine>/`, if the task's setup extracts them.
+4. The transcript record in `.codesignal/<engine>/` (below).
 
-Sections 1–3 come from files the session user can't change: each gateway records turns from the
-engine's own traffic. Extracted transcripts live in the workspace and can be edited, so grading
-that must hold up should rely on the first three.
+**Transcript record.** The simulation writes, per agent, the files the platform's terminal agent
+provisioning writes, in the same format, so graders that read them work unchanged:
+`.codesignal/<engine>/interactions_summary.<N>.jsonl` (a line per session with counts, tokens,
+tools, errors, commands, files and mode switches, and a line per prompt with the reply, tool
+results, commands and files) and `timeline.<N>.part<k>.txt` (the same, readable, in parts of at
+most 70 KB). `<engine>` is `claude`, `codex` or `opencode`. The gateways build it from the
+engine's traffic as it happens, rather than reading the engine's files afterwards, so a task
+doesn't need the provisioner. A server restart starts the next `<N>`.
+
+In root mode, sections 1–3 come from files the session user can't change. In user mode
+everything belongs to the session user, but the agents' view keeps `.codesignal/` and the
+simulation's own records out of their reach.
 
 ## Development
 

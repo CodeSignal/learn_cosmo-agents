@@ -3,6 +3,7 @@
 import { RouteGateway, proxyHttp, proxyUpgrade, readBody } from "../gateway.mjs";
 import { ROUTES, pathPattern } from "./opencode-routes.mjs";
 import { createTurnRecorder } from "../turns.mjs";
+import { createTranscript } from "../transcript.mjs";
 
 const TERMINAL_REASON = "the terminal";
 
@@ -60,6 +61,58 @@ export function opencodeTurns(turns) {
   };
 }
 
+const FILE_TOOLS = { edit: "ai_edit", patch: "ai_edit", multiedit: "ai_edit", write: "ai_write" };
+
+/** The transcript record (server/transcript.mjs) from OpenCode's event stream. A reply's text is
+ * recorded when the reply completes (text parts stream in as updates). */
+export function opencodeTranscript(t) {
+  const users = new Set(); // user message ids
+  const texts = new Map(); // assistant message id → Map(part id → text)
+  const done = new Set(); // tool calls and replies already recorded
+  return (event) => {
+    const p = event?.properties ?? {};
+    const info = p.info ?? {};
+    switch (event?.type) {
+      case "message.updated":
+        if (info.role === "user") {
+          users.add(info.id);
+          t.model(info.sessionID, info.model?.modelID);
+          t.mode(info.sessionID, info.agent);
+        } else if (info.role === "assistant" && info.time?.completed && !done.has(info.id)) {
+          done.add(info.id);
+          t.model(info.sessionID, info.modelID);
+          for (const text of texts.get(info.id)?.values() ?? []) t.text(info.sessionID, text);
+          texts.delete(info.id);
+          const k = info.tokens;
+          if (k) t.tokens(info.sessionID, { input_tokens: k.input, output_tokens: k.output, reasoning_output_tokens: k.reasoning, cached_input_tokens: k.cache?.read });
+        }
+        return;
+      case "message.part.updated": {
+        const part = p.part ?? {};
+        if (part.type === "text" && !part.synthetic) {
+          if (users.has(part.messageID)) {
+            if (!done.has(part.messageID)) (done.add(part.messageID), t.prompt(part.sessionID, part.text));
+          } else {
+            if (!texts.has(part.messageID)) texts.set(part.messageID, new Map());
+            texts.get(part.messageID).set(part.id, part.text);
+          }
+        } else if (part.type === "tool" && ["completed", "error"].includes(part.state?.status) && !done.has(part.callID)) {
+          done.add(part.callID);
+          const input = part.state.input ?? {};
+          t.tool(part.sessionID, { callId: part.callID, name: part.tool });
+          if (part.tool === "bash") t.command(part.sessionID, { command: input.command, output: part.state.output ?? undefined });
+          if (FILE_TOOLS[part.tool]) t.file(part.sessionID, { path: input.filePath, action: FILE_TOOLS[part.tool] });
+          t.result(part.sessionID, { callId: part.callID, name: part.tool, isError: part.state.status === "error", errorText: part.state.error });
+        }
+        return;
+      }
+      case "session.idle":
+        t.end(p.sessionID);
+        return;
+    }
+  };
+}
+
 /** Follow OpenCode's event stream for the workspace (reconnecting), handing each event on. */
 function followEvents({ target, headers, root, onEvent }) {
   let delay = 1000;
@@ -97,7 +150,7 @@ function followEvents({ target, headers, root, onEvent }) {
 /**
  * @param watch  follow the engine's event stream for the turn record (off in unit tests)
  */
-export function createOpenCodeGateway({ target, password, workspace, terminal, events, agent = "opencosmo", watch = false }) {
+export function createOpenCodeGateway({ target, password, workspace, terminal, events, agent = "opencosmo", watch = false, transcripts }) {
   const rules = ROUTES.map(([method, path, decision]) => ({
     method,
     path: pathPattern(path),
@@ -107,7 +160,19 @@ export function createOpenCodeGateway({ target, password, workspace, terminal, e
   const gateway = new RouteGateway({ name: "opencode", rules, events });
   const auth = password ? { authorization: "Basic " + Buffer.from(`opencode:${password}`).toString("base64") } : {};
   const root = workspace.replace(/\/+$/, "");
-  if (watch) followEvents({ target, headers: auth, root, onEvent: opencodeTurns(createTurnRecorder({ events, gateway: "opencode", agent })) });
+  if (watch) {
+    const turns = opencodeTurns(createTurnRecorder({ events, gateway: "opencode", agent }));
+    const transcript = opencodeTranscript(createTranscript({ dir: transcripts && `${transcripts}/opencode`, agent, project: root }));
+    followEvents({ target, headers: auth, root, onEvent: (e) => {
+      for (const on of [turns, transcript]) {
+        try {
+          on(e);
+        } catch {
+          /* a record never breaks the stream */
+        }
+      }
+    } });
+  }
 
   // Folders arrive as ?directory= and the x-opencode-directory header.
   const outside = (req, url) =>

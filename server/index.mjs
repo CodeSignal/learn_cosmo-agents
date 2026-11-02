@@ -286,27 +286,32 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
 /** The engine gateways for the task's agents, from the supervisor-provided environment. */
 export function gatewaysFor(policy, events, env = process.env) {
   const gateways = {};
+  const workspace = env.WORKSPACE || "/usercode/FILESYSTEM";
+  // The transcript record for grading, beside the task's files (server/transcript.mjs).
+  const transcripts = env.TRANSCRIPTS_DIR ?? `${workspace}/.codesignal`;
   if (policy.agents.includes("opencosmo")) {
     gateways.opencosmo = createOpenCodeGateway({
       target: env.OPENCODE_URL || "http://127.0.0.1:4096",
       password: env.OPENCODE_SERVER_PASSWORD,
-      workspace: env.WORKSPACE || "/usercode/FILESYSTEM",
+      workspace,
       terminal: policy.terminal === "sandboxed",
       events,
       watch: true,
+      transcripts,
     });
   }
   if (policy.agents.includes("cosmodex")) {
     gateways.cosmodex = createCodexGateway({
       url: env.CODEX_URL || "ws://127.0.0.1:4500",
-      workspace: env.WORKSPACE || "/usercode/FILESYSTEM",
+      workspace,
       terminal: policy.terminal === "sandboxed",
       ceilings: codexCeilings(policy),
       events,
+      transcripts,
     });
   }
   if (policy.agents.includes("cosmo-code") && env.CLAUDE_HOST_URL) {
-    gateways["cosmo-code"] = createClaudeGateway({ url: env.CLAUDE_HOST_URL, ceilings: claudeCeilings(policy), terminal: policy.terminal === "sandboxed", events });
+    gateways["cosmo-code"] = createClaudeGateway({ url: env.CLAUDE_HOST_URL, ceilings: claudeCeilings(policy), terminal: policy.terminal === "sandboxed", events, transcripts, workspace });
   }
   return gateways;
 }

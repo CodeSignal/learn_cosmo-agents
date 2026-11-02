@@ -46,4 +46,6 @@ echo "-- checks"
 docker exec "$NAME" node /tmp/cosmodex-check.mjs
 docker exec "$NAME" node /tmp/cosmo-code-check.mjs
 docker exec "$NAME" node /tmp/view-check.mjs
+# The transcript record for grading, in the provisioner's format (server/transcript.mjs).
+docker exec "$NAME" sh -c 'sleep 3; for e in claude codex; do f=$(ls /usercode/FILESYSTEM/.codesignal/$e/interactions_summary.*.jsonl 2>/dev/null | head -1); t=$(ls /usercode/FILESYSTEM/.codesignal/$e/timeline.*.part1.txt 2>/dev/null | head -1); if [ -n "$f" ] && [ -n "$t" ] && grep -q "\"kind\": *\"session\"" "$f" && grep -q "\"input_text\"" "$f" && grep -q "USER:" "$t"; then echo "PASS  L-$e the transcript record has sessions, prompts and a timeline"; else echo "FAIL  L-$e no transcript record in .codesignal/$e"; fi; done'
 echo "http://localhost:$PORT/"

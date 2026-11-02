@@ -5,7 +5,8 @@
 // allow or deny, an "always allow" only for the rule the engine suggested, and edited input only
 // for questions (the candidate's answers).
 import { createTurnRecorder } from "../turns.mjs";
-import { createJsonRpcGateway } from "./jsonrpc.mjs";
+import { createJsonRpcGateway, observers } from "./jsonrpc.mjs";
+import { createTranscript, resultText } from "../transcript.mjs";
 
 export const CLAUDE_HOST_PROTOCOL = 1;
 
@@ -165,7 +166,53 @@ export function claudeTurns(turns) {
   };
 }
 
-export function createClaudeGateway({ url, ceilings, terminal = false, events, agent = "cosmo-code" }) {
+const FILE_TOOLS = { Edit: "ai_edit", MultiEdit: "ai_edit", NotebookEdit: "ai_edit", Write: "ai_write" };
+
+/** The transcript record (server/transcript.mjs) from the engine host's traffic. */
+export function claudeTranscript(t) {
+  return {
+    call(method, params, result) {
+      const id = result?.sessionId ?? params?.sessionId;
+      if (method === "session/send") {
+        t.model(id, params?.model);
+        t.mode(id, params?.permissionMode);
+        t.prompt(id, params?.text);
+      } else if (method === "session/configure") {
+        t.model(id, params?.model);
+        t.mode(id, params?.permissionMode);
+      }
+    },
+    notify(msg) {
+      if (msg.method !== "session/message") return;
+      const { sessionId: id, message: m } = msg.params ?? {};
+      if (!m || m.parent_tool_use_id) return; // a subagent's own conversation
+      if (m.type === "system" && m.subtype === "init") {
+        t.model(id, m.model);
+        t.mode(id, m.permissionMode);
+      } else if (m.type === "assistant" && Array.isArray(m.message?.content)) {
+        for (const b of m.message.content) {
+          if (b?.type === "text") t.text(id, b.text);
+          else if (b?.type === "tool_use" && !String(b.name).startsWith(APP_TOOL)) {
+            const input = b.input ?? {};
+            t.tool(id, { callId: b.id, name: b.name, command: b.name === "Bash" ? input.command : undefined, file: FILE_TOOLS[b.name] ? input.file_path ?? input.notebook_path : undefined, action: FILE_TOOLS[b.name] });
+          }
+        }
+      } else if (m.type === "user" && Array.isArray(m.message?.content)) {
+        for (const b of m.message.content) {
+          if (b?.type === "tool_result") t.result(id, { callId: b.tool_use_id, isError: !!b.is_error, errorText: resultText(b.content) });
+        }
+      } else if (m.type === "result") {
+        t.tokens(id, m.usage && { input_tokens: m.usage.input_tokens, output_tokens: m.usage.output_tokens, cache_read_input_tokens: m.usage.cache_read_input_tokens, cache_creation_input_tokens: m.usage.cache_creation_input_tokens });
+        t.end(id);
+      }
+    },
+  };
+}
+
+/**
+ * @param transcripts  where the transcript record goes (<workspace>/.codesignal), or none
+ */
+export function createClaudeGateway({ url, ceilings, terminal = false, events, agent = "cosmo-code", transcripts, workspace = "/usercode/FILESYSTEM" }) {
   const ctx = { models: [...ceilings.models], modes: [...ceilings.modes], webTools: !!ceilings.webTools };
   const handler = createJsonRpcGateway({
     name: "claude",
@@ -184,7 +231,10 @@ export function createClaudeGateway({ url, ceilings, terminal = false, events, a
     ask: (msg) => (msg.method === "session/permission" ? true : "this request"),
     answer: (asked, result) => checkAnswer(asked, result, ctx),
     resolvedId: (msg) => (msg.method === "session/permissionCancelled" ? msg.params?.id : undefined),
-    observe: claudeTurns(createTurnRecorder({ events, gateway: "claude", agent })),
+    observe: observers(
+      claudeTurns(createTurnRecorder({ events, gateway: "claude", agent })),
+      claudeTranscript(createTranscript({ dir: transcripts && `${transcripts}/claude`, agent, project: workspace })),
+    ),
   });
   return handler;
 }
