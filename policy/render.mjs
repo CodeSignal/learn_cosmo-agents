@@ -313,14 +313,17 @@ export function renderPolicy(config, env = {}, inputs = {}, pins = PINS) {
  * @param claudeSandbox  whether Cosmo Code's own command sandbox can run here
  * @returns {{ engineEnv: object, codexArgs: string[], codexCatalog: object|null }}
  */
-export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, claudeSandbox = true } = {}, pins = PINS) {
+export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, instructionsPath, claudeSandbox = true } = {}, pins = PINS) {
   const errors = [];
   const engineEnv = {};
   let codexArgs = [];
   let catalog = null;
   const engines = new Set(config.agents.map((a) => engineOf(a, pins)));
   if (engines.has("opencode")) {
-    engineEnv.opencode = { OPENCODE_CONFIG_CONTENT: JSON.stringify(opencode(config, env, errors)), ...OPENCODE_ENV };
+    // The task's instructions: OpenCode reads them from a file (the caller writes it, read-only to
+    // the agent), the others take them from the process that starts them.
+    const doc = { ...opencode(config, env, errors), ...(config.instructions && instructionsPath ? { instructions: [instructionsPath] } : {}) };
+    engineEnv.opencode = { OPENCODE_CONFIG_CONTENT: JSON.stringify(doc), ...OPENCODE_ENV };
   }
   if (engines.has("codex")) {
     catalog = codexCatalog(inputs.codexBundledCatalog, config, errors);
@@ -329,7 +332,12 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, c
     // otherwise, under which an approved edit can't even create a folder.
     const sandbox_mode = config.sandbox ? "workspace-write" : "danger-full-access";
     const effort = config.models.cosmodex.effort;
-    codexArgs = toTomlOverrides({ ...codexConfig(env, catalogPath, errors), sandbox_mode, ...(effort ? { model_reasoning_effort: effort } : {}) }).flatMap((o) => ["-c", o]);
+    codexArgs = toTomlOverrides({
+      ...codexConfig(env, catalogPath, errors),
+      sandbox_mode,
+      ...(effort ? { model_reasoning_effort: effort } : {}),
+      ...(config.instructions ? { developer_instructions: config.instructions } : {}),
+    }).flatMap((o) => ["-c", o]);
     engineEnv.codex = {};
   }
   if (engines.has("claude")) {
@@ -344,7 +352,12 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, c
     // Policy ask rules make even Auto ask, so with auto mode the task's ask rules go to the flag
     // tier only: Manual still asks for everything the task says, Auto leaves it to the classifier.
     const policyTier = config.permissions.auto ? { ...settings, permissions: { ...settings.permissions, ask: [] } } : settings;
-    engineEnv.claude = { ...CLAUDE_ENV, COSMO_CODE_SETTINGS: JSON.stringify(policyTier), COSMO_CODE_FLAG_SETTINGS: JSON.stringify(settings) };
+    engineEnv.claude = {
+      ...CLAUDE_ENV,
+      COSMO_CODE_SETTINGS: JSON.stringify(policyTier),
+      COSMO_CODE_FLAG_SETTINGS: JSON.stringify(settings),
+      ...(config.instructions ? { COSMO_CODE_INSTRUCTIONS: config.instructions } : {}),
+    };
   }
   if (errors.length) throw new RenderError(errors);
   return { engineEnv, codexArgs, codexCatalog: catalog };

@@ -347,6 +347,8 @@ const server = http.createServer((req, res) => {
       status: 200,
       lastUser: (lastUserText(body.messages || (Array.isArray(body.input) ? body.input : [])) || "").slice(0, 120),
       ...(system ? { systemHead: system.slice(0, 200), systemTail: system.slice(-300), systemChars: system.length } : {}),
+      // STUB_FIND: whether a request carries this text anywhere (e.g. a task's instructions).
+      ...(process.env.STUB_FIND ? { found: JSON.stringify(body).includes(process.env.STUB_FIND) } : {}),
     });
     try { route(req, res, body); } catch (e) { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }
   });

@@ -69,6 +69,7 @@ The task ships `.codesignal/agent-sim.json`. A task can only narrow what
 | `models.<agent>.allowed` | all pinned | Models the agent may use; `default` picks the starting one |
 | `models.<agent>.efforts` | all the engine's | Effort levels the candidate may pick (Claude Code: `low` … `max`; Codex: `minimal` … `xhigh`; OpenCode: its model variants); `effort` picks the starting one |
 | `models.<agent>.names` | real names | `true` shows cosmic names (Orbit, Nova, Comet, …) instead of the models' and vendors' names; an object names them one by one. Graders still see the real ids |
+| `instructions` | none | Standing instructions every agent gets, like a user-level instructions file: appended to Cosmo Code's system prompt, Codex's developer instructions, an instructions file for OpenCosmo (user mode) |
 | `permissions.preset` | `"ask"` | `"ask"`: approve every edit and shell command; `"engine-default"`: each engine's own behaviour; `"allow"`: no prompts |
 | `permissions.edit` | from preset | `"ask"`, `"allow"` or `"deny"` for file edits |
 | `permissions.bash` | from preset | One action for all shell commands, or `{ "<pattern>": action }` with `*` wildcards, later patterns winning |

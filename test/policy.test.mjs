@@ -321,3 +321,14 @@ test("names and efforts reach the engines: OpenCode's config and Codex's catalog
   assert.equal(entry.default_reasoning_level, "low");
   assert.ok(out.codexArgs.includes('model_reasoning_effort="low"'));
 });
+
+test("instructions: every engine gets the task's, from the process that starts it or a read-only file", () => {
+  const c = valid({ agents: ["opencosmo", "cosmodex", "cosmo-code"], instructions: "  Stay in the workspace.  " });
+  assert.equal(c.instructions, "Stay in the workspace.");
+  const out = renderUserPolicy(c, ENV, { codexBundledCatalog: CATALOG }, { catalogPath: "/x", instructionsPath: "/s/instructions.md" });
+  assert.deepEqual(JSON.parse(out.engineEnv.opencode.OPENCODE_CONFIG_CONTENT).instructions, ["/s/instructions.md"]);
+  assert.ok(out.codexArgs.includes('developer_instructions="Stay in the workspace."'));
+  assert.equal(out.engineEnv.claude.COSMO_CODE_INSTRUCTIONS, "Stay in the workspace.");
+  assert.equal(valid({ agents: ["cosmodex"] }).instructions, undefined);
+  assert.equal(validateTaskConfig({ agents: ["cosmodex"], instructions: 5 }).ok, false);
+});

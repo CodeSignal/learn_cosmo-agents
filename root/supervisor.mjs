@@ -321,14 +321,18 @@ function applyAsUser() {
   const policy = result.config;
   for (const dir of [RUN_DIR, LOG_DIR, EVENTS_DIR]) fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
   const catalogPath = `${STATE_DIR}/codex-models.json`;
+  const instructionsPath = `${STATE_DIR}/instructions.md`;
   const codexBundledCatalog = policy.agents.includes("cosmodex") ? bundledCodexCatalog() : undefined;
-  const view = engineView({ visible: policy.agents.includes("cosmodex") ? [catalogPath] : [] });
-  if (policy.agents.includes("cosmodex")) fs.writeFileSync(catalogPath, ""); // the view binds it
+  // Files the engines read from the simulation's state, bound read-only into their view.
+  const visible = [];
+  if (policy.agents.includes("cosmodex")) (fs.writeFileSync(catalogPath, ""), visible.push(catalogPath));
+  if (policy.instructions && policy.agents.includes("opencosmo")) (fs.writeFileSync(instructionsPath, policy.instructions + "\n"), visible.push(instructionsPath));
+  const view = engineView({ visible });
   const tool = sandboxTool(view);
   log("sandbox", tool.bwrap ? { state: "on", procMount: tool.procMount } : { state: "off", error: tool.error });
   let rendered;
   try {
-    rendered = renderUserPolicy(policy, process.env, { codexBundledCatalog }, { catalogPath, claudeSandbox: !!tool.procMount });
+    rendered = renderUserPolicy(policy, process.env, { codexBundledCatalog }, { catalogPath, instructionsPath, claudeSandbox: !!tool.procMount });
   } catch (e) {
     throw e instanceof RenderError ? new Error(e.errors.join("; ")) : e;
   }

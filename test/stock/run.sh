@@ -25,10 +25,11 @@ docker run -d --name "$NAME" -p "$PORT:3000" \
 docker cp test/stub-gateway.mjs "$NAME":/tmp/stub-gateway.mjs >/dev/null
 docker cp "$TARBALL" "$NAME":/tmp/release.tar.gz >/dev/null
 for f in test/container/cosmodex-check.mjs test/container/cosmo-code-check.mjs test/stock/view-check.mjs; do docker cp "$f" "$NAME":/tmp/ >/dev/null; done
-docker exec -d "$NAME" sh -c 'STUB_LOG=/tmp/stub.jsonl PORT=4000 node /tmp/stub-gateway.mjs'
+docker exec -d "$NAME" sh -c 'STUB_FIND=WORKING-AGREEMENT-7731 STUB_LOG=/tmp/stub.jsonl PORT=4000 node /tmp/stub-gateway.mjs'
 # The task's files, read-only and root's, as the platform delivers them.
 docker exec -i -u root "$NAME" sh -c 'cat > .codesignal/agent-sim.json && echo "bash .codesignal/run_solution.sh" > main.sh && chmod 0444 .codesignal/agent-sim.json main.sh' <<'JSON'
 { "agents": ["cosmo-code", "cosmodex", "opencosmo"], "allowSwitch": true,
+  "instructions": "WORKING-AGREEMENT-7731: stay in the workspace.",
   "models": { "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"], "names": true, "efforts": ["low", "medium", "high"] },
               "cosmodex": { "allowed": ["gpt-5.6-terra", "gpt-6-luna"], "names": true, "efforts": ["low", "medium"] },
               "cosmo-code": { "allowed": ["claude-sonnet-5-5"], "names": true, "efforts": ["low", "medium", "high"] } } }
@@ -46,6 +47,8 @@ echo "-- checks"
 docker exec "$NAME" node /tmp/cosmodex-check.mjs
 docker exec "$NAME" node /tmp/cosmo-code-check.mjs
 docker exec "$NAME" node /tmp/view-check.mjs
+# The task's instructions reach every agent's model requests.
+docker exec "$NAME" sh -c 'for p in /v1/messages /v1/responses; do if grep "\"url\":\"$p" /tmp/stub.jsonl | grep -q "\"found\":true"; then echo "PASS  I$p the task instructions reach the model"; else echo "FAIL  I$p the task instructions never reached the model"; fi; done'
 # The transcript record for grading, in the provisioner's format (server/transcript.mjs).
 docker exec "$NAME" sh -c 'sleep 3; for e in claude codex; do f=$(ls /usercode/FILESYSTEM/.codesignal/$e/interactions_summary.*.jsonl 2>/dev/null | head -1); t=$(ls /usercode/FILESYSTEM/.codesignal/$e/timeline.*.part1.txt 2>/dev/null | head -1); if [ -n "$f" ] && [ -n "$t" ] && grep -q "\"kind\": *\"session\"" "$f" && grep -q "\"input_text\"" "$f" && grep -q "USER:" "$t"; then echo "PASS  L-$e the transcript record has sessions, prompts and a timeline"; else echo "FAIL  L-$e no transcript record in .codesignal/$e"; fi; done'
 echo "http://localhost:$PORT/"

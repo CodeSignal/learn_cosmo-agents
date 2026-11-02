@@ -42,6 +42,9 @@ const SETTINGS = process.env.COSMO_CODE_SETTINGS ? JSON.parse(process.env.COSMO_
 // The flag tier, when it differs: with auto mode it carries the task's ask rules, which make
 // even Auto ask wherever they are, so a session in Auto gets them lifted (flagFor).
 const FLAG_SETTINGS = process.env.COSMO_CODE_FLAG_SETTINGS ? JSON.parse(process.env.COSMO_CODE_FLAG_SETTINGS) : SETTINGS;
+// The task's standing instructions, appended to Claude Code's system prompt in every session
+// (before the candidate's own, when a session has them).
+const TASK_INSTRUCTIONS = process.env.COSMO_CODE_INSTRUCTIONS ?? "";
 const flagFor = (mode) =>
   FLAG_SETTINGS && mode === "auto" ? { ...FLAG_SETTINGS, permissions: { ...FLAG_SETTINGS.permissions, ask: [] } } : FLAG_SETTINGS;
 // The candidate's terminal, only when the task has one ("sandboxed"; the gateway checks too).
@@ -149,7 +152,7 @@ function openSession(sessionId, settings, { resume = false, resumeAt } = {}) {
       ...base(),
       // Claude Code's own system prompt, as in the desktop app, with the candidate's instructions
       // (Settings → General) for a new session; a resumed session keeps the prompt it recorded.
-      systemPrompt: { type: "preset", preset: "claude_code", ...(settings.instructions ? { append: settings.instructions } : {}) },
+      systemPrompt: { type: "preset", preset: "claude_code", ...(appendFor(settings) ? { append: appendFor(settings) } : {}) },
       ...(resume ? { resume: sessionId, ...(resumeAt ? { resumeSessionAt: resumeAt } : {}) } : { sessionId }),
       ...(settings.model ? { model: settings.model } : {}),
       ...(settings.permissionMode ? { permissionMode: settings.permissionMode } : {}),
@@ -523,6 +526,11 @@ function openTerminal(cols, rows) {
     notify("terminal/exit", { id, code });
   });
   return { id };
+}
+
+/** What a session's system prompt gets appended: the task's instructions, then the candidate's. */
+function appendFor(settings) {
+  return [TASK_INSTRUCTIONS, settings.instructions].filter((t) => t && t.trim()).join("\n\n");
 }
 
 /** Model and mode change on the running engine; effort applies from the next session start. */

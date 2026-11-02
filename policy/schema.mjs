@@ -4,7 +4,8 @@ import PINS from "./pins.json" with { type: "json" };
 
 export { PINS };
 
-const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models", "permissions"]);
+const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models", "permissions", "instructions"]);
+const MAX_INSTRUCTIONS = 16_000;
 const TERMINAL = ["off", "sandboxed"];
 // "ask" (the default): approve every edit and shell command; "engine-default": each engine's
 // own out-of-the-box behaviour; "allow": no approval prompts.
@@ -51,6 +52,10 @@ export function validateTaskConfig(raw, pins = PINS) {
   }
 
   const permissions = validatePermissions(raw.permissions, agents, errors);
+  // Standing instructions every agent gets, as a user-level instructions layer would give them.
+  if (raw.instructions !== undefined && (typeof raw.instructions !== "string" || raw.instructions.length > MAX_INSTRUCTIONS)) {
+    errors.push(`"instructions" must be text of at most ${MAX_INSTRUCTIONS} characters`);
+  }
 
   const models = {};
   const rawModels = raw.models ?? {};
@@ -99,6 +104,7 @@ export function validateTaskConfig(raw, pins = PINS) {
       webTools: raw.webTools ?? false,
       models,
       permissions,
+      ...(typeof raw.instructions === "string" && raw.instructions.trim() ? { instructions: raw.instructions.trim() } : {}),
     },
   };
 }
