@@ -53,7 +53,11 @@ jobs:
       # User mode, as on the platform's standard image: the tarball installed and started by the
       # session user, then the gateway checks.
       - name: Standard image checks
-        run: sh test/stock/run.sh out/release.tar.gz | tee stock.log && ! grep -q '^FAIL' stock.log
+        run: |
+          # Ubuntu 24.04 runners keep unprivileged user namespaces behind AppArmor; the platform
+          # (and the engines' sandboxed view) allows them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sh test/stock/run.sh out/release.tar.gz | tee stock.log && ! grep -q '^FAIL' stock.log
 
       - name: UI smoke test
         run: npm run test:ui -- --base http://localhost:3020 --out ui-screenshots

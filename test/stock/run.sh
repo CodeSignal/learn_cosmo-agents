@@ -40,6 +40,7 @@ start=$(date +%s)
 docker exec "$NAME" sh -c 'APP=$HOME/.cosmo-agents/app && mkdir -p $APP && tar -xzf /tmp/release.tar.gz -C $APP && sh $APP/scripts/session-setup.sh /usercode/FILESYSTEM/.codesignal/agent-sim.json' \
   || { echo "FAIL setup"; exit 1; }
 echo "setup took $(( $(date +%s) - start ))s"
+docker exec "$NAME" sh -c 'grep "\"sandbox\"" ~/.cosmo-agents/state/supervisor.jsonl | tail -1'
 
 echo "-- checks"
 docker exec "$NAME" node /tmp/cosmodex-check.mjs
