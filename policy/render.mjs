@@ -299,7 +299,7 @@ export function renderPolicy(config, env = {}, inputs = {}, pins = PINS) {
 
   if (engines.has("opencode")) {
     dirs.push("/etc/opencode", ROOT.xdg, `${ROOT.xdg}/opencode`);
-    files.push({ path: ROOT.opencode, content: json(opencode(config, env, errors)) });
+    files.push({ path: ROOT.opencode, content: json(opencode(config, env, errors, pins)) });
     if (inputs.opencodeInstructions) {
       files.push({ path: `${ROOT.xdg}/opencode/AGENTS.md`, content: inputs.opencodeInstructions });
     }
@@ -352,7 +352,7 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, i
   if (engines.has("opencode")) {
     // The task's instructions: OpenCode reads them from a file (the caller writes it, read-only to
     // the agent), the others take them from the process that starts them.
-    const doc = { ...opencode(config, env, errors), ...(config.instructions && instructionsPath ? { instructions: [instructionsPath] } : {}) };
+    const doc = { ...opencode(config, env, errors, pins), ...(config.instructions && instructionsPath ? { instructions: [instructionsPath] } : {}) };
     engineEnv.opencode = { OPENCODE_CONFIG_CONTENT: JSON.stringify(doc), ...OPENCODE_ENV };
   }
   if (engines.has("codex")) {

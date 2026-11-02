@@ -112,7 +112,7 @@ function which(bin) {
 /**
  * The workspace as a git repository (engines show changes against it), with the task's own
  * files (.codesignal, main.sh) in the repo-local exclude list, so they stay out of change lists and file
- * search (cosmetic: the agent can still read them).
+ * search (the OpenCode gateway also filters its search results; cosmetic: the agent can still read them).
  */
 function gitWorkspace() {
   const script = [

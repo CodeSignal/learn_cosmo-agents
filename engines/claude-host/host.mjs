@@ -65,6 +65,8 @@ const appTools = () =>
   createSdkMcpServer({
     name: APP_TOOLS,
     version: "1.0.0",
+    // Offered up front like the desktop app's, not deferred behind tool search.
+    alwaysLoad: true,
     tools: [
       tool(
         "update_plan",

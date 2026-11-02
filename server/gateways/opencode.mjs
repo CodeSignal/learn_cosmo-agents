@@ -14,6 +14,20 @@ const PERMISSION_REPLY = [
   /^\/api\/session\/[^/]+\/permission\/[^/]+\/reply$/,
 ];
 
+// File and text search (v1 and v2 API). The task's own files stay out of their results, as git
+// excludes them; OpenCode 1.19 no longer reads git's exclude file for its search.
+const SEARCH = ["/find/file", "/find", "/api/fs/find"];
+const TASK_FILE = /^(\.codesignal(\/|$)|main\.sh$)/;
+
+/** A search result without the task's own files: path lists, text matches or v2 entries. */
+export function withoutTaskFiles(result, root) {
+  const rel = (p) => (typeof p === "string" ? p.replace(/^\.\//, "").replace(root + "/", "") : "");
+  const keep = (x) => !TASK_FILE.test(rel(typeof x === "string" ? x : (x?.path?.text ?? x?.path)));
+  if (Array.isArray(result)) return result.filter(keep);
+  if (Array.isArray(result?.data)) return { ...result, data: result.data.filter(keep) };
+  return result;
+}
+
 /** once / always / reject, from any of the reply shapes; null if unreadable. */
 function replyOf(body) {
   try {
@@ -216,7 +230,25 @@ export function createOpenCodeGateway({ target, password, workspace, terminal, e
       events?.record("permission-reply", { gateway: "opencode", agent, path: pathname, reply: replyOf(body) });
       return proxyHttp(req, res, { target, path: sub, headers: auth, body });
     }
+    if (req.method === "GET" && SEARCH.includes(pathname)) return search(req, res, sub);
     proxyHttp(req, res, { target, path: sub, headers: auth });
+  };
+  const search = async (req, res, sub) => {
+    try {
+      const dir = req.headers["x-opencode-directory"];
+      const up = await fetch(new URL(sub, target), { headers: { ...auth, ...(dir ? { "x-opencode-directory": dir } : {}) } });
+      let body = await up.text();
+      try {
+        body = JSON.stringify(withoutTaskFiles(JSON.parse(body), root));
+      } catch {
+        /* not JSON: as the engine sent it */
+      }
+      res.writeHead(up.status, { "content-type": up.headers.get("content-type") ?? "application/json" });
+      res.end(body);
+    } catch (e) {
+      res.writeHead(502, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `engine unavailable: ${e.code || e.message}` }));
+    }
   };
   handler.upgrade = (req, socket, head, sub) => {
     const refused = check(req, "GET", sub);

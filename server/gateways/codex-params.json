@@ -113,6 +113,15 @@
   "itemTypeResults",
   "providerId"
  ],
+ "feedback/save": [
+  "classification",
+  "extraLogFiles",
+  "includeLogs",
+  "reason",
+  "savePath",
+  "tags",
+  "threadId"
+ ],
  "feedback/upload": [
   "classification",
   "extraLogFiles",
@@ -161,7 +170,8 @@
   "roots"
  ],
  "hooks/list": [
-  "cwds"
+  "cwds",
+  "threadId"
  ],
  "initialize": [
   "capabilities",
@@ -307,6 +317,13 @@
   "identityKey",
   "threadId"
  ],
+ "thread/attachmentOwner/list": [
+  "archived",
+  "attachmentType",
+  "cursor",
+  "identityKey",
+  "limit"
+ ],
  "thread/compact/start": [
   "threadId"
  ],
@@ -359,6 +376,7 @@
   "archived",
   "cursor",
   "cwd",
+  "excludedThreadIds",
   "limit",
   "modelProviders",
   "originators",
@@ -474,7 +492,9 @@
   "input",
   "model",
   "outputSchema",
+  "parentTurnId",
   "personality",
+  "rootTurnId",
   "sandboxPolicy",
   "serviceTier",
   "serviceTierForTurn",
