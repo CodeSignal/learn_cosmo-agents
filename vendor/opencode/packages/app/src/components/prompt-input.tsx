@@ -82,7 +82,7 @@ import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
-import { vendorHidden } from "@/opencosmo-task"
+import { taskStartEffort, vendorHidden } from "@/opencosmo-task"
 
 export { createPromptInputHistory }
 export type { PromptInputControls, PromptInputHistory, PromptInputProps, PromptInputState, PromptInputSubmission }
@@ -1190,7 +1190,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     />
   )
 
-  const variants = createMemo(() => ["default", ...props.controls.model.selection.variant.list()])
+  const variants = createMemo(() => [
+    ...(taskStartEffort() ? [] : ["default"]),
+    ...props.controls.model.selection.variant.list(),
+  ])
   // Check provider variants directly: `variants` also includes the UI-only default option.
   const showVariantControl = createMemo(() => props.controls.model.selection.variant.list().length > 0)
   const accepting = createMemo(() => {
@@ -1767,7 +1770,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           <Select
                             size="normal"
                             options={variants()}
-                            current={props.controls.model.selection.variant.current() ?? "default"}
+                            current={props.controls.model.selection.variant.current() ?? taskStartEffort() ?? "default"}
                             label={(x) => (x === "default" ? language.t("common.default") : x)}
                             onSelect={(value) => {
                               props.controls.model.selection.variant.set(value === "default" ? undefined : value)

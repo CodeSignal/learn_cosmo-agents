@@ -4,7 +4,8 @@ Guidance for contributors and AI agents working in this repository.
 
 ## Layout
 
-- `policy/`: `pins.json` (engine versions and allowed models, the only place they live),
+- `policy/`: `pins.json` (engine versions and allowed models, the only place they live; OpenCode
+  `definitions` describe models newer than its own catalog),
   `schema.mjs` (task config validation), `render.mjs` (engine policy files, pure),
   `toml.mjs`.
 - `root/`: code that runs as root in root mode. `apply-policy.mjs` (one-shot), `supervisor.mjs`

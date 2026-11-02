@@ -1,4 +1,4 @@
-import { terminalEnabled, vendorHidden } from "@/opencosmo-task"
+import { taskStartEffort, terminalEnabled, vendorHidden } from "@/opencosmo-task"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
@@ -319,7 +319,10 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       keybind: command.keybindParts(item.id),
     })),
   )
-  const variants = createMemo(() => ["default", ...props.controls.model.selection.variant.list()])
+  const variants = createMemo(() => [
+    ...(taskStartEffort() ? [] : ["default"]),
+    ...props.controls.model.selection.variant.list(),
+  ])
   const controller = createPromptInputV2Controller({
     // OpenCosmo: shell mode runs commands directly, so it follows the task's terminal setting.
     allowShell: terminalEnabled,
@@ -399,7 +402,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       },
       variant: {
         options: () => variants().map((value) => ({ id: value, label: value })),
-        current: () => props.controls.model.selection.variant.current() ?? "default",
+        current: () => props.controls.model.selection.variant.current() ?? taskStartEffort() ?? "default",
         onSelect: (value) => props.controls.model.selection.variant.set(value === "default" ? undefined : value),
         keybind: () => command.keybindParts("model.variant.cycle"),
       },

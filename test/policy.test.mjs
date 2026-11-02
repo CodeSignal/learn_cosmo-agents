@@ -74,6 +74,31 @@ test("OpenCode policy: providers and whitelists from the allowed models, web too
   assert.deepEqual(doc.mcp, {});
 });
 
+test("OpenCode policy: a model newer than OpenCode's catalog comes with its definition", () => {
+  const c = valid({ agents: ["opencosmo"], models: { opencosmo: { allowed: ["anthropic/claude-haiku-5-5", "openai/gpt-6-luna"], efforts: ["low", "medium"] } } });
+  const doc = JSON.parse(file(renderPolicy(c, ENV), ROOT.opencode));
+  const haiku = doc.provider.anthropic.models["claude-haiku-5-5"];
+  assert.equal(haiku.name, "Claude Haiku 5.5");
+  assert.equal(haiku.reasoning, true);
+  assert.deepEqual(haiku.limit, { context: 1000000, output: 128000 });
+  assert.equal(haiku.variants.high.disabled, true);
+  assert.equal(doc.provider.openai.models["gpt-6-luna"].name, undefined); // in the catalog already
+});
+
+test("OpenCode policy: with limited levels, Default is the task's starting level", () => {
+  const limited = (extra) => valid({ agents: ["opencosmo"], models: { opencosmo: { allowed: ["anthropic/claude-haiku-5-5", "openai/gpt-6-luna"], efforts: ["low", "medium"], ...extra } } });
+  const doc = JSON.parse(file(renderPolicy(limited({ effort: "medium" }), ENV), ROOT.opencode));
+  assert.deepEqual(doc.provider.anthropic.models["claude-haiku-5-5"].options, { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" });
+  assert.deepEqual(doc.provider.openai.models["gpt-6-luna"].options, { reasoningEffort: "medium" });
+  assert.deepEqual(doc.agent.build, { model: "anthropic/claude-haiku-5-5", variant: "medium" });
+  // Without a starting level, the lowest common one the task allows.
+  assert.equal(JSON.parse(file(renderPolicy(limited({}), ENV), ROOT.opencode)).agent.plan.variant, "low");
+  // All levels allowed: OpenCode's own defaults.
+  const open = JSON.parse(file(renderPolicy(valid({ agents: ["opencosmo"] }), ENV), ROOT.opencode));
+  assert.equal(open.agent, undefined);
+  assert.equal(open.provider.anthropic.models["claude-haiku-5-5"].options, undefined);
+});
+
 test("OpenCode runs from a root-owned config home with project config disabled", () => {
   const out = renderPolicy(valid({ agents: ["opencosmo"] }), ENV, { opencodeInstructions: "# Working agreement\n" });
   const env = JSON.parse(file(out, ROOT.engineEnv)).opencode;
@@ -312,7 +337,7 @@ test("names and efforts reach the engines: OpenCode's config and Codex's catalog
   const oc = JSON.parse(renderUserPolicy(c, ENV, { codexBundledCatalog: { models: [{ slug: "gpt-5.6-terra", supported_in_api: true, display_name: "GPT", description: "x", default_reasoning_level: "medium", supported_reasoning_levels: ["low", "medium", "high", "xhigh"].map((effort) => ({ effort })) }] } }, { catalogPath: "/x" }).engineEnv.opencode.OPENCODE_CONFIG_CONTENT);
   assert.equal(oc.provider.anthropic.name, "Cosmo");
   assert.equal(oc.provider.anthropic.models["claude-sonnet-5-5"].name, "Orbit");
-  assert.deepEqual(Object.keys(oc.provider.anthropic.models["claude-sonnet-5-5"].variants), ["minimal", "xhigh", "max"]);
+  assert.deepEqual(Object.keys(oc.provider.anthropic.models["claude-sonnet-5-5"].variants), ["none", "minimal", "xhigh", "max"]);
   const out = renderUserPolicy(c, ENV, { codexBundledCatalog: { models: [{ slug: "gpt-5.6-terra", supported_in_api: true, display_name: "GPT", description: "x", default_reasoning_level: "medium", supported_reasoning_levels: ["low", "medium", "high", "xhigh"].map((effort) => ({ effort })) }] } }, { catalogPath: "/x" });
   const [entry] = out.codexCatalog.models;
   assert.equal(entry.display_name, "Comet");

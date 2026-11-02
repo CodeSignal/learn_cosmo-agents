@@ -32,6 +32,14 @@ test("session lists only the task's agents, with the active one and switch setti
   assert.equal(body.agents[0].available, false);
 });
 
+test("the session tells OpenCosmo the starting level when the task limits levels", async (t) => {
+  const { server } = setup({ agents: ["opencosmo", "cosmodex"], models: { opencosmo: { efforts: ["low", "medium"] }, cosmodex: { efforts: ["low", "medium"] } } });
+  const base = await listen(server);
+  t.after(() => server.close());
+  const { body } = await json(await fetch(`${base}/api/session`));
+  assert.deepEqual(body.agents.map((a) => a.startEffort), ["low", undefined]);
+});
+
 test("switching is refused and logged when the task disallows it", async (t) => {
   const { server, readEvents } = setup({ agents: ["cosmodex", "cosmo-code"] });
   const base = await listen(server);

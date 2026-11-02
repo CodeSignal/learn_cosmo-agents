@@ -34,10 +34,29 @@ export function anthropicBaseUrl(raw) {
   return s.endsWith("/v1") ? s : `${s}/v1`;
 }
 
+// What OpenCode sends for a reasoning level when no variant is chosen ("Default"), by provider:
+// the shapes of its own variants for these SDKs. A model's options apply before the variant's.
+const OPENCODE_EFFORT = {
+  anthropic: (effort) => ({ thinking: { type: "adaptive", display: "summarized" }, effort }),
+  openai: (effort) => ({ reasoningEffort: effort }),
+};
+
+/**
+ * OpenCosmo's starting level: the task's, or when the task limits the levels, the lowest common
+ * one it allows. With one, "Default" sends it rather than the model's own level, which the task
+ * can't limit. Undefined when every level is allowed and none is chosen.
+ */
+export function opencodeStartEffort({ efforts, effort }, pins = PINS) {
+  const limited = (pins.engines.opencode.efforts ?? []).some((e) => !efforts?.includes(e));
+  return effort ?? (limited ? efforts.find((e) => ["low", "medium", "high"].includes(e)) : undefined);
+}
+
 function opencode(config, env, errors, pins = PINS) {
   const { allowed, default: model, efforts, names } = config.models.opencosmo;
   // Effort levels are model variants in OpenCode: the ones the task leaves out are switched off.
   const off = Object.fromEntries((pins.engines.opencode.efforts ?? []).filter((e) => !efforts?.includes(e)).map((e) => [e, { disabled: true }]));
+  // The default model starts on the starting level.
+  const start = opencodeStartEffort(config.models.opencosmo, pins);
   const whitelist = {};
   for (const id of allowed) {
     const [provider, ...rest] = id.split("/");
@@ -49,8 +68,17 @@ function opencode(config, env, errors, pins = PINS) {
     if (!baseURL) {
       errors.push(`opencosmo allows ${id}/* models but ${id === "anthropic" ? "ANTHROPIC_BASE_URL" : "OPENAI_BASE_URL"} is not set`);
     }
+    // A model newer than OpenCode's own catalog comes with its definition (pins "definitions").
     const perModel = Object.fromEntries(
-      models.map((m) => [m, { ...(names ? { name: names[`${id}/${m}`] } : {}), ...(Object.keys(off).length ? { variants: off } : {}) }]),
+      models.map((m) => [
+        m,
+        {
+          ...(pins.engines.opencode.definitions?.[`${id}/${m}`] ?? {}),
+          ...(start && OPENCODE_EFFORT[id] ? { options: OPENCODE_EFFORT[id](start) } : {}),
+          ...(names ? { name: names[`${id}/${m}`] } : {}),
+          ...(Object.keys(off).length ? { variants: off } : {}),
+        },
+      ]),
     );
     provider[id] = {
       // With cosmic names the vendor isn't named either.
@@ -70,6 +98,7 @@ function opencode(config, env, errors, pins = PINS) {
     model,
     small_model: model,
     provider,
+    ...(start ? { agent: { build: { model, variant: start }, plan: { model, variant: start } } } : {}),
     permission: { ...asked, ...deny, external_directory: "deny" },
     mcp: {},
   };

@@ -11,7 +11,7 @@ import { createEventLog } from "./events.mjs";
 import { createOpenCodeGateway } from "./gateways/opencode.mjs";
 import { createCodexGateway } from "./gateways/codex.mjs";
 import { createClaudeGateway } from "./gateways/claude.mjs";
-import { claudeCeilings, codexCeilings } from "../policy/render.mjs";
+import { claudeCeilings, codexCeilings, opencodeStartEffort } from "../policy/render.mjs";
 import { workspaceDiff, SCOPES } from "./workspace-git.mjs";
 import { PINS, engineOf, validateTaskConfig } from "../policy/schema.mjs";
 
@@ -201,6 +201,8 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
       // Usable once its engine gateway exists and its UI has been built.
       available: Boolean(gateways[id]) && fs.existsSync(path.join(AGENTS_DIR, id, "index.html")),
       models: policy.models[id],
+      // OpenCosmo's "Default" level is this one, so its UI doesn't offer it as a separate choice.
+      ...(id === "opencosmo" && opencodeStartEffort(policy.models[id]) ? { startEffort: opencodeStartEffort(policy.models[id]) } : {}),
     })),
     active: state.active,
     allowSwitch: policy.allowSwitch,
