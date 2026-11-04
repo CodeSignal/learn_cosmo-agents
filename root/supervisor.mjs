@@ -149,16 +149,21 @@ function commitStartingPoint(attempt = 1) {
   if (!fs.existsSync(SETUP_FINISHED)) return void setTimeout(commitStartingPoint, 250);
   const child = spawn("sh", ["-c", STARTING_POINT_SCRIPT], { ...asSessionUser(), stdio: ["ignore", "ignore", "pipe"], timeout: 60_000 });
   let stderr = "";
-  child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-300)));
-  child.on("close", (status) => {
+  let settled = false;
+  const settle = (status, error) => {
+    if (settled) return;
+    settled = true;
     if (status === 0) {
       fs.writeFileSync(STARTING_POINT_DONE, "");
       return log("starting-point", { attempt });
     }
-    log("starting-point-failed", { attempt, status, error: stderr.trim() });
+    log("starting-point-failed", { attempt, status, error });
     // A git lock held by an agent's command is usually gone a moment later.
     if (attempt < 5) setTimeout(() => commitStartingPoint(attempt + 1), 2000 * attempt);
-  });
+  };
+  child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-300)));
+  child.on("error", (e) => settle(null, e.message));
+  child.on("close", (status) => settle(status, stderr.trim()));
 }
 
 // The task's own files in the workspace: an agent may read them but never change them.
