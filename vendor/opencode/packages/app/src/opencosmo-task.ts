@@ -7,7 +7,10 @@ const [autoMode, setAutoMode] = createSignal(false)
 const [named, setNamed] = createSignal(false)
 const [startEffort, setStartEffort] = createSignal<string | undefined>(undefined)
 
-void fetch(new URL("/api/session", location.origin))
+/** The simulation's own routes (its page, APIs, gateways), apart from a task's app. */
+export const COSMO: string = import.meta.env.VITE_COSMO ?? "/_cosmo"
+
+void fetch(new URL(`${COSMO}/api/session`, location.origin))
   .then((response) => (response.ok ? response.json() : undefined))
   .then((session) => {
     setTerminal(session?.terminal !== undefined && session.terminal !== "off")

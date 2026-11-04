@@ -21,6 +21,7 @@ import { useServerSync } from "@/context/server-sync"
 import { useProviders } from "@/hooks/use-providers"
 import { NEW_SESSION_CONTENT_WIDTH } from "@/pages/session/new-session-layout"
 import { Persist, persisted } from "@/utils/persist"
+import { COSMO } from "@/opencosmo-task"
 import type { NewSessionDraftController } from "./new-session-draft-controller"
 import type { NewSessionWorkspaceController } from "./new-session-workspace-controller"
 
@@ -40,7 +41,7 @@ export function NewSessionView(props: {
         <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
           <div class={NEW_SESSION_CONTENT_WIDTH}>
             {/* OpenCosmo: Cosmo, the simulation's mascot (pixel art, served by the shell). */}
-            <img src="/cosmo.svg" alt="" class="mx-auto mb-6 size-16" style={{ "image-rendering": "pixelated" }} />
+            <img src={`${COSMO}/cosmo.svg`} alt="" class="mx-auto mb-6 size-16" style={{ "image-rendering": "pixelated" }} />
             <WordmarkV2 class="h-auto w-full text-v2-background-bg-inverse" />
             <div class="mt-8 flex flex-col gap-8">
               <PromptInputV2Composer controller={props.input} />
