@@ -172,6 +172,10 @@ else
   echo "SKIP  E1-3 transcript extraction (set PROVISIONER_BUNDLE to the provisioner's bundle)"
 fi
 
+# Last, as it commits the workspace: once the task's setup is done, its state is the starting point.
+check W1 "setup's end commits the workspace as the starting point, without excluded files; later edits are changes" \
+  as_runner 'touch /tmp/.setup_finished; sleep 2; [ "$(git log -1 --format=%s)" = "Starting point" ] && [ -z "$(git status --porcelain)" ] && [ "$(git ls-files .codesignal main.sh node_modules dist | wc -l)" -eq 0 ] && echo w1 >> w1-probe.txt && git status --porcelain | grep -q w1-probe.txt'
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "all checks passed"; else echo "$FAILS check(s) failed"; fi
 [ "$KEEP" = "--keep" ] || docker rm -f "$NAME" >/dev/null

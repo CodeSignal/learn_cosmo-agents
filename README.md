@@ -95,9 +95,10 @@ In Cosmo Code the task's ask rules apply in every other mode and are lifted in A
 would make even Auto ask. Automatic answers are recorded like the candidate's own.
 
 **A task with its own web app.** The platform previews only port 3000, which the simulation
-uses. With `"app": { "port": 5173 }`, the shell gets an App pane beside the agent showing the
-app, and the server passes every path outside its own (`/` and `/_cosmo/…`) to the app's dev
-server on that port, WebSockets (hot reload) included. The task's side:
+uses. With `"app": { "port": 5173 }`, the shell gets an App pane showing the app, beside the
+agent when there's room (1200px or wider) and in its place otherwise, switched from the header.
+The server passes every path outside its own (`/` and `/_cosmo/…`) to the app's dev server on
+that port, WebSockets (hot reload) included. The task's side:
 
 - Serve the app under `/app/` on that port (Vite: `base: "/app/"`, `server.port` and
   `preview.port` the task's, `strictPort`). Absolute paths the app's code uses without the base
@@ -124,6 +125,11 @@ downloads the release for the channel (`APP_ENVIRONMENT`), unpacks it in the ses
    every engine's policy into memory, starts the server and the engines and restarts them if
    they stop;
 3. returns once the server on :3000 answers.
+
+The workspace is a git repository, which the agents' change views compare against. The task's
+own files, installed dependencies (`.venv`, `node_modules`) and build output (`dist`, `.cache`)
+are git-excluded, and once the task's setup has finished (`/tmp/.setup_finished`) the
+supervisor commits the workspace as "Starting point", so changes are the candidate's own.
 
 [`.codesignal/README.md`](.codesignal/README.md) has the base task's settings.
 `OPENAI_BASE_URL`/`OPENAI_API_KEY` and `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` must be set for
