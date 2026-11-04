@@ -109,11 +109,14 @@ function which(bin) {
   throw new Error(`${bin} is not installed`);
 }
 
-function inWorkspace(script) {
-  if (USER_MODE) return spawnSync("sh", ["-c", script], { cwd: WORKSPACE, env: { PATH: "/usr/bin:/bin", HOME: os.homedir() } });
+/** Options to run a shell in the workspace as the session user. */
+function asSessionUser() {
+  if (USER_MODE) return { cwd: WORKSPACE, env: { PATH: "/usr/bin:/bin", HOME: os.homedir() } };
   const acct = account(SESSION_USER);
-  return spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
+  return { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } };
 }
+
+const inWorkspace = (script) => spawnSync("sh", ["-c", script], asSessionUser());
 
 /**
  * The workspace as a git repository (engines show changes against it), with the task's own
@@ -131,18 +134,31 @@ function gitWorkspace() {
 
 // The platform's task setup writes this last.
 const SETUP_FINISHED = "/tmp/.setup_finished";
+// Done once per session: after a supervisor restart, the workspace holds the candidate's work.
+const STARTING_POINT_DONE = `${STATE_DIR}/starting-point`;
 
-/** Once the task's setup is done, commit the workspace as the starting point, so changes are the candidate's. */
-function commitStartingPoint() {
-  const timer = setInterval(() => {
-    if (!fs.existsSync(SETUP_FINISHED)) return;
-    clearInterval(timer);
-    const result = inWorkspace(
-      "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; git rev-parse -q --verify HEAD >/dev/null && exit 0; " +
-        'git add -A && git -c user.name=Workspace -c user.email=workspace@localhost -c commit.gpgsign=false commit -q --no-verify --allow-empty -m "Starting point"',
-    );
-    log("starting-point", { status: result.status, ...(result.status ? { error: result.stderr?.toString().trim().slice(0, 300) } : {}) });
-  }, 250);
+// A task's own history is kept; the commit is made only when setup changed something.
+const STARTING_POINT_SCRIPT =
+  "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; git add -A || exit 1; " +
+  "git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet && exit 0; " +
+  "git -c user.name=Workspace -c user.email=workspace@localhost -c commit.gpgsign=false -c core.hooksPath=/dev/null " +
+  'commit -q --no-verify --allow-empty -m "Starting point"';
+
+function commitStartingPoint(attempt = 1) {
+  if (fs.existsSync(STARTING_POINT_DONE)) return;
+  if (!fs.existsSync(SETUP_FINISHED)) return void setTimeout(commitStartingPoint, 250);
+  const child = spawn("sh", ["-c", STARTING_POINT_SCRIPT], { ...asSessionUser(), stdio: ["ignore", "ignore", "pipe"], timeout: 60_000 });
+  let stderr = "";
+  child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-300)));
+  child.on("close", (status) => {
+    if (status === 0) {
+      fs.writeFileSync(STARTING_POINT_DONE, "");
+      return log("starting-point", { attempt });
+    }
+    log("starting-point-failed", { attempt, status, error: stderr.trim() });
+    // A git lock held by an agent's command is usually gone a moment later.
+    if (attempt < 5) setTimeout(() => commitStartingPoint(attempt + 1), 2000 * attempt);
+  });
 }
 
 // The task's own files in the workspace: an agent may read them but never change them.
@@ -227,6 +243,7 @@ export function services({ policy, engineEnv, codexArgs = [], userMode = USER_MO
       cwd: WORKSPACE,
       env: { ...engineEnv.codex, ...proxy },
       port: CODEX_PORT,
+      prepare: gitWorkspace,
     });
   }
   if (policy.agents.includes("cosmo-code")) {
