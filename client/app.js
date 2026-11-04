@@ -121,7 +121,10 @@ function remember(key, value) {
 
 /** The App pane: the task's web app beside the agent, resizable, opened from the header. */
 function setupAppPane(app) {
-  const button = document.getElementById('btn-app');
+  const button = document.createElement('button');
+  button.className = 'button button-text';
+  button.setAttribute('aria-controls', 'app-pane');
+  document.getElementById('btn-help').before(button);
   const pane = document.getElementById('app-pane');
   const divider = document.getElementById('app-divider');
   const frame = document.getElementById('app-frame');
@@ -150,7 +153,6 @@ function setupAppPane(app) {
     if (open && !frame.getAttribute('src')) frame.src = app.path;
     remember('cosmo.app.open', open ? '1' : '0');
   };
-  button.hidden = false;
   button.addEventListener('click', () => setOpen(pane.hidden));
   setOpen(remember('cosmo.app.open') === '1');
 
