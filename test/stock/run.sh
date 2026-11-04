@@ -55,4 +55,6 @@ docker exec "$NAME" sh -c 'sleep 3; for e in claude codex; do f=$(ls /usercode/F
 # The task's own web app (app.port 5173): every path outside the simulation's own reaches it.
 docker exec -d -u runner "$NAME" node -e 'require("http").createServer((q, s) => s.end("APP " + q.url)).listen(5173)'
 docker exec "$NAME" sh -c 'sleep 1; a=$(curl -s localhost:3000/app/x); d=$(curl -s localhost:3000/data/lots.json); h=$(curl -s -o /dev/null -w %{http_code} localhost:3000/_cosmo/api/health); r=$(curl -s localhost:3000/ | grep -c "/_cosmo/assets/"); if [ "$a" = "APP /app/x" ] && [ "$d" = "APP /app/data/lots.json" ] && [ "$h" = 200 ] && [ "$r" -ge 1 ]; then echo "PASS  A1   a task app gets every path outside the simulation'"'"'s own"; else echo "FAIL  A1   task app routing: $a | $d | $h | $r"; fi'
+# Once the task's setup is done, the workspace is committed as the starting point (changes are the candidate's).
+docker exec -u runner "$NAME" sh -c 'touch /tmp/.setup_finished; sleep 5; cd /usercode/FILESYSTEM; s=$(git log -1 --format=%s 2>/dev/null); c=$(git status --porcelain | wc -l); if [ "$s" = "Starting point" ] && [ "$c" -eq 0 ]; then echo "PASS  W1   setup'"'"'s end commits the workspace as the starting point"; else echo "FAIL  W1   starting point: commit \"$s\", $c changes left"; fi'
 echo "http://localhost:$PORT/"
