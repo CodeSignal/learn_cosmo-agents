@@ -11,6 +11,7 @@ const switcherEl = document.getElementById('agent-switcher');
 const statusEl = document.getElementById('agent-status');
 const frames = new Map();
 let session = null;
+let appPane = null;
 let helpModal = null;
 
 function showMessage(text) {
@@ -74,6 +75,7 @@ async function switchTo(agentId) {
     }
     session = body;
     show(session.active);
+    appPane?.showAgent();
   } catch (error) {
     setStatus('Could not switch agents', 'error');
   }
@@ -150,13 +152,12 @@ function setupAppPane(app) {
   if (saved) pane.style.setProperty('--app-width', `${saved}px`);
 
   let open = false;
+  const narrow = () => workspace.clientWidth < SPLIT_MIN_WIDTH;
   const layout = () => {
-    const narrow = workspace.clientWidth < SPLIT_MIN_WIDTH;
     pane.hidden = !open;
-    divider.hidden = !open || narrow;
-    workspace.classList.toggle('app-only', open && narrow);
-    button.textContent = open ? (narrow ? 'Show agent' : 'Hide app') : 'Show app';
-    button.setAttribute('aria-pressed', String(open));
+    divider.hidden = !open || narrow();
+    workspace.classList.toggle('app-only', open && narrow());
+    button.textContent = open ? (narrow() ? 'Show agent' : 'Hide app') : 'Show app';
   };
   const setOpen = (value) => {
     open = value;
@@ -166,7 +167,13 @@ function setupAppPane(app) {
   };
   new ResizeObserver(layout).observe(workspace);
   button.addEventListener('click', () => setOpen(!open));
-  setOpen(remember('cosmo.app.open') === '1');
+  // Where the app would hide the agent, a reload starts on the agent.
+  setOpen(remember('cosmo.app.open') === '1' && !narrow());
+  return {
+    showAgent: () => {
+      if (open && narrow()) setOpen(false);
+    },
+  };
 
   divider.addEventListener('pointerdown', (event) => {
     event.preventDefault();
@@ -209,7 +216,7 @@ async function initialize() {
   }
   renderSwitcher();
   show(session.active);
-  if (session.app) setupAppPane(session.app);
+  if (session.app) appPane = setupAppPane(session.app);
 }
 
 if (document.readyState === 'loading') {

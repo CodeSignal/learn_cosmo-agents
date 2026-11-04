@@ -137,9 +137,12 @@ function commitStartingPoint() {
   const timer = setInterval(() => {
     if (!fs.existsSync(SETUP_FINISHED)) return;
     clearInterval(timer);
-    const result = inWorkspace('git rev-parse -q --verify HEAD >/dev/null || { git add -A && git -c user.name=Workspace -c user.email=workspace@localhost commit -q --no-verify -m "Starting point"; }');
-    log("starting-point", { status: result.status });
-  }, CHECK_MS);
+    const result = inWorkspace(
+      "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; git rev-parse -q --verify HEAD >/dev/null && exit 0; " +
+        'git add -A && git -c user.name=Workspace -c user.email=workspace@localhost -c commit.gpgsign=false commit -q --no-verify --allow-empty -m "Starting point"',
+    );
+    log("starting-point", { status: result.status, ...(result.status ? { error: result.stderr?.toString().trim().slice(0, 300) } : {}) });
+  }, 250);
 }
 
 // The task's own files in the workspace: an agent may read them but never change them.
