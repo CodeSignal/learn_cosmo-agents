@@ -36,9 +36,14 @@ async function launch() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "cosmo-ui-profile-"));
   // CI runners don't give Chrome the user namespaces its own sandbox needs; the pages are ours.
   const flags = process.env.CI ? ["--no-sandbox"] : [];
-  const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...flags, "about:blank"], { stdio: "ignore", detached: true });
+  const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...flags, "about:blank"], { stdio: ["ignore", "ignore", "pipe"], detached: true });
+  // A cold start on a CI runner can take a while; if Chrome doesn't come up, say why.
+  let stderr = "";
+  chrome.stderr.on("data", (d) => (stderr = (stderr + d).slice(-4000)));
   const portFile = path.join(profile, "DevToolsActivePort");
-  for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(100);
+  for (let i = 0; i < 300 && !fs.existsSync(portFile) && chrome.exitCode === null; i++) await sleep(100);
+  if (!fs.existsSync(portFile)) throw new Error(`Chrome did not start (exit ${chrome.exitCode}):\n${stderr}`);
+  chrome.stderr.destroy();
   const port = fs.readFileSync(portFile, "utf8").split("\n")[0];
   const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
   const ws = new WebSocket(version.webSocketDebuggerUrl);
