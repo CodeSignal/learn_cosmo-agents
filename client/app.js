@@ -169,12 +169,6 @@ function setupAppPane(app) {
   button.addEventListener('click', () => setOpen(!open));
   // Where the app would hide the agent, a reload starts on the agent.
   setOpen(remember('cosmo.app.open') === '1' && !narrow());
-  return {
-    showAgent: () => {
-      if (open && narrow()) setOpen(false);
-    },
-  };
-
   divider.addEventListener('pointerdown', (event) => {
     event.preventDefault();
     divider.setPointerCapture(event.pointerId);
@@ -196,6 +190,11 @@ function setupAppPane(app) {
     event.preventDefault();
     remember('cosmo.app.width', String(setWidth(pane.getBoundingClientRect().width + step)));
   });
+  return {
+    showAgent: () => {
+      if (open && narrow()) setOpen(false);
+    },
+  };
 }
 
 async function initialize() {
