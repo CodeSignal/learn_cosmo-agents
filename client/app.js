@@ -119,7 +119,11 @@ function remember(key, value) {
   }
 }
 
-/** The App pane: the task's web app beside the agent, resizable, opened from the header. */
+// Narrower than this, the agent UIs have no room beside the app, which then takes their place.
+const SPLIT_MIN_WIDTH = 1200;
+const AGENT_MIN_WIDTH = 640;
+
+/** The App pane: the task's web app beside the agent (or instead of it when narrow), opened from the header. */
 function setupAppPane(app) {
   const button = document.createElement('button');
   button.className = 'button button-text';
@@ -136,7 +140,7 @@ function setupAppPane(app) {
   });
 
   const setWidth = (px) => {
-    const max = workspace.clientWidth - 320;
+    const max = workspace.clientWidth - AGENT_MIN_WIDTH;
     const width = Math.max(240, Math.min(max, px));
     pane.style.setProperty('--app-width', `${width}px`);
     divider.setAttribute('aria-valuenow', String(Math.round(width)));
@@ -145,15 +149,23 @@ function setupAppPane(app) {
   const saved = Number(remember('cosmo.app.width'));
   if (saved) pane.style.setProperty('--app-width', `${saved}px`);
 
-  const setOpen = (open) => {
+  let open = false;
+  const layout = () => {
+    const narrow = workspace.clientWidth < SPLIT_MIN_WIDTH;
     pane.hidden = !open;
-    divider.hidden = !open;
-    button.textContent = open ? 'Hide app' : 'Show app';
+    divider.hidden = !open || narrow;
+    workspace.classList.toggle('app-only', open && narrow);
+    button.textContent = open ? (narrow ? 'Show agent' : 'Hide app') : 'Show app';
     button.setAttribute('aria-pressed', String(open));
+  };
+  const setOpen = (value) => {
+    open = value;
     if (open && !frame.getAttribute('src')) frame.src = app.path;
     remember('cosmo.app.open', open ? '1' : '0');
+    layout();
   };
-  button.addEventListener('click', () => setOpen(pane.hidden));
+  new ResizeObserver(layout).observe(workspace);
+  button.addEventListener('click', () => setOpen(!open));
   setOpen(remember('cosmo.app.open') === '1');
 
   divider.addEventListener('pointerdown', (event) => {

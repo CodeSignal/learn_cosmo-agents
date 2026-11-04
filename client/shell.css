@@ -51,11 +51,20 @@
 
 .app-pane {
   display: flex;
-  flex: 0 0 var(--app-width, 45%);
+  flex: 0 0 var(--app-width, 40%);
   flex-direction: column;
   min-width: 240px;
-  max-width: calc(100% - 320px);
+  max-width: calc(100% - 640px);
   background: var(--Colors-Backgrounds-Main-Default);
+}
+
+.workspace.app-only .agent-stage {
+  display: none;
+}
+
+.workspace.app-only .app-pane {
+  flex: 1;
+  max-width: none;
 }
 
 .app-divider[hidden],

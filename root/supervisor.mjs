@@ -109,21 +109,37 @@ function which(bin) {
   throw new Error(`${bin} is not installed`);
 }
 
-/**
- * The workspace as a git repository (engines show changes against it), with the task's own
- * files (.codesignal, main.sh) and installed dependencies (a Python .venv, node_modules) in the
- * repo-local exclude list, so they stay out of change lists and file search (the OpenCode gateway
- * also filters its search results; cosmetic: the agent can still read and use them).
- */
-function gitWorkspace() {
-  const script = [
-    "[ -d .git ] || git init -q",
-    'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
-    ...["/.codesignal/", "/main.sh", "/.venv/", "/node_modules/"].map((p) => `{ grep -qxF "${p}" "$f" 2>/dev/null || echo "${p}" >> "$f"; }`),
-  ].join(" && ");
+function inWorkspace(script) {
   if (USER_MODE) return spawnSync("sh", ["-c", script], { cwd: WORKSPACE, env: { PATH: "/usr/bin:/bin", HOME: os.homedir() } });
   const acct = account(SESSION_USER);
-  spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
+  return spawnSync("sh", ["-c", script], { cwd: WORKSPACE, uid: acct.uid, gid: acct.gid, env: { PATH: "/usr/bin:/bin", HOME: acct.home } });
+}
+
+/**
+ * The workspace as a git repository (engines show changes against it), with the task's own
+ * files (.codesignal, main.sh), installed dependencies (.venv, node_modules) and build output
+ * (dist, .cache) in the repo-local exclude list, so they stay out of change lists and file search
+ * (the OpenCode gateway also filters its search results; cosmetic: the agent can still use them).
+ */
+function gitWorkspace() {
+  inWorkspace([
+    "[ -d .git ] || git init -q",
+    'f=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$f")"',
+    ...["/.codesignal/", "/main.sh", "/.venv/", "/node_modules/", "/dist/", "/.cache/"].map((p) => `{ grep -qxF "${p}" "$f" 2>/dev/null || echo "${p}" >> "$f"; }`),
+  ].join(" && "));
+}
+
+// The platform's task setup writes this last.
+const SETUP_FINISHED = "/tmp/.setup_finished";
+
+/** Once the task's setup is done, commit the workspace as the starting point, so changes are the candidate's. */
+function commitStartingPoint() {
+  const timer = setInterval(() => {
+    if (!fs.existsSync(SETUP_FINISHED)) return;
+    clearInterval(timer);
+    const result = inWorkspace('git rev-parse -q --verify HEAD >/dev/null || { git add -A && git -c user.name=Workspace -c user.email=workspace@localhost commit -q --no-verify -m "Starting point"; }');
+    log("starting-point", { status: result.status });
+  }, CHECK_MS);
 }
 
 // The task's own files in the workspace: an agent may read them but never change them.
@@ -349,6 +365,7 @@ function supervise(list) {
   fs.writeFileSync(PID_FILE, `${process.pid}\n`);
   list.forEach(start);
   setInterval(() => checkPorts(list), CHECK_MS);
+  commitStartingPoint();
   const stop = () => {
     for (const svc of list) if (svc.child) try { process.kill(-svc.child.pid, "SIGTERM"); } catch { /* gone */ }
     process.exit(0);

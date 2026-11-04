@@ -135,11 +135,12 @@ test("permission answers are logged with the reply and reach the engine with the
   assert.deepEqual(events.map((e) => [e.type, e.reply]), Array(3).fill(["permission-reply", "once"]));
 });
 
-test("search results leave out what git excludes (.codesignal, main.sh, .venv, node_modules)", async (t) => {
+test("search results leave out what git excludes (task files, dependencies, build output)", async (t) => {
   const root = "/usercode/FILESYSTEM";
   assert.deepEqual(withoutExcluded([".codesignal/agent-sim.json", "main.sh", "notes/main.sh", "src/a.py", ".codesignal"], root), ["notes/main.sh", "src/a.py"]);
   assert.deepEqual(withoutExcluded([".venv/lib/x.py", ".venv", "venv-notes.md", "src/.venv.txt"], root), ["venv-notes.md", "src/.venv.txt"]);
   assert.deepEqual(withoutExcluded(["node_modules/vite/index.js", "src/node_modules.md"], root), ["src/node_modules.md"]);
+  assert.deepEqual(withoutExcluded(["dist/index.html", ".cache/x.tsbuildinfo", "src/dist.ts"], root), ["src/dist.ts"]);
   assert.deepEqual(withoutExcluded([{ path: { text: `${root}/.codesignal/x` } }, { path: { text: "a.py" } }], root), [{ path: { text: "a.py" } }]);
   assert.deepEqual(withoutExcluded({ location: {}, data: [{ path: "main.sh", type: "file" }, { path: "b.py", type: "file" }] }, root).data, [{ path: "b.py", type: "file" }]);
   const { base, seen, close } = await setup({ reply: () => JSON.stringify([".codesignal/agent-sim.json", "notes/agent-sim.md"]) });
