@@ -1,7 +1,7 @@
 // Run inside the stand-in container (test/stock/run.sh) as the session user: an agent's command,
 // approved, sees only the engine's view (root/supervisor.mjs, engineView). Prints one
 // "PASS|FAIL <id> <description>" line per check.
-const G = "http://localhost:3000/engine/cosmo-code";
+const G = "http://localhost:3000/_cosmo/engine/cosmo-code";
 const started = new Date().toISOString();
 let failed = 0;
 

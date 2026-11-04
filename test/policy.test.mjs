@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateTaskConfig, PINS } from "../policy/schema.mjs";
-import { renderPolicy, renderUserPolicy, RenderError, codexCatalog, anthropicBaseUrl, ROOT } from "../policy/render.mjs";
+import { renderPolicy, renderUserPolicy, RenderError, codexCatalog, codexCeilings, anthropicBaseUrl, ROOT } from "../policy/render.mjs";
 import { toToml, toTomlOverrides } from "../policy/toml.mjs";
 
 const ENV = { OPENAI_BASE_URL: "https://proxy.test/v1", ANTHROPIC_BASE_URL: "https://proxy.test" };
@@ -283,6 +283,7 @@ test("user mode: each engine's policy as environment or arguments, nothing on di
   assert.ok(out.codexArgs.includes('model_catalog_json="/home/runner/.cosmo-agents/state/codex-models.json"'));
   assert.ok(!out.codexArgs.some((a) => a.startsWith("allowed_")));
   assert.ok(out.codexArgs.includes('sandbox_mode="workspace-write"'));
+  assert.ok(!out.codexArgs.some((a) => a.startsWith("sandbox_workspace_write.")));
   assert.deepEqual(out.codexCatalog.models.map((m) => m.slug), c.models.cosmodex.allowed);
   // Cosmo Code: the managed settings without "managed rules only" (policy-tier allow rules are
   // dropped, so the task's allow rules come through the flag tier).
@@ -358,4 +359,23 @@ test("instructions: every engine gets the task's, from the process that starts i
   assert.equal(out.engineEnv.claude.COSMO_CODE_INSTRUCTIONS, "Stay in the workspace.");
   assert.equal(valid({ agents: ["cosmodex"] }).instructions, undefined);
   assert.equal(validateTaskConfig({ agents: ["cosmodex"], instructions: 5 }).ok, false);
+});
+
+test("app: a port for the task's own web app, never one of the simulation's", () => {
+  assert.deepEqual(valid({ agents: ["cosmo-code"], app: { port: 5173 } }).app, { port: 5173, path: "/app/" });
+  assert.equal(valid({ agents: ["cosmo-code"] }).app, undefined);
+  // A normalized config validates again (the server re-reads the applied policy).
+  assert.deepEqual(valid(valid({ agents: ["cosmo-code"], app: { port: 5173 } })).app, { port: 5173, path: "/app/" });
+  assert.equal(validateTaskConfig({ agents: ["cosmo-code"], app: { port: 5173, path: "/x/" } }).ok, false);
+  for (const app of [{ port: 3000 }, { port: 4500 }, { port: 80 }, { port: "5173" }, { port: 5173, base: "/x/" }, []]) {
+    assert.equal(validateTaskConfig({ agents: ["cosmo-code"], app }).ok, false, JSON.stringify(app));
+  }
+});
+
+test("a task app gives Codex's sandbox network access (a dev server must listen)", () => {
+  const c = valid({ agents: ["cosmodex"], app: { port: 5173 } });
+  const out = renderUserPolicy(c, ENV, { codexBundledCatalog: CATALOG }, { catalogPath: "/x" });
+  assert.ok(out.codexArgs.includes("sandbox_workspace_write.network_access=true"));
+  assert.equal(codexCeilings(c).network, true);
+  assert.equal(codexCeilings(valid({ agents: ["cosmodex"] })).network, false);
 });

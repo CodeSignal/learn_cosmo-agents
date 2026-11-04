@@ -2,7 +2,9 @@
 // with POST /rpc, notifications and engine requests (approvals, questions) over SSE /events,
 // answers with POST /respond. The gateway decides what may pass; refusals come back as errors
 // with `data.blocked`.
-const BASE = import.meta.env.VITE_ENGINE_PATH ?? "/engine/cosmodex"
+/** The simulation's own routes (its page, APIs, engine gateways), apart from a task's app. */
+export const COSMO: string = import.meta.env.VITE_COSMO ?? "/_cosmo"
+const BASE = import.meta.env.VITE_ENGINE_PATH ?? `${COSMO}/engine/cosmodex`
 
 export type EngineErrorBody = { code: number; message: string; data?: { blocked?: boolean } }
 

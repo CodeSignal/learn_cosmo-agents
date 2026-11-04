@@ -511,11 +511,13 @@ const terminals = new Map();
 /**
  * A login shell in the workspace, in a sandbox fixed here: the whole system read-only except the
  * workspace and /tmp, no network, its own process tree; and no proxy keys in its environment.
+ * A task with its own web app keeps the network, so the app's dev server can be reached.
  * terminal-shell gives bash a terminal of its own (job control) and takes resizes in-band.
  */
 function openTerminal(cols, rows) {
   const id = crypto.randomUUID();
-  const sandbox = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--bind", WORKSPACE, WORKSPACE, "--bind", "/tmp", "/tmp", "--unshare-net", "--unshare-pid", "--unshare-ipc", "--die-with-parent", "--new-session", "--chdir", WORKSPACE, "--", TERMINAL_SHELL];
+  const network = process.env.COSMO_CODE_APP_PORT ? [] : ["--unshare-net"];
+  const sandbox = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--bind", WORKSPACE, WORKSPACE, "--bind", "/tmp", "/tmp", ...network, "--unshare-pid", "--unshare-ipc", "--die-with-parent", "--new-session", "--chdir", WORKSPACE, "--", TERMINAL_SHELL];
   const env = { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: os.homedir(), USER: os.userInfo().username, LANG: "C.UTF-8", TERM: "xterm-256color", COLORTERM: "truecolor", COLUMNS: String(cols), LINES: String(rows) };
   const child = spawn("bwrap", sandbox, { cwd: WORKSPACE, env, stdio: ["pipe", "pipe", "pipe"] });
   terminals.set(id, child);

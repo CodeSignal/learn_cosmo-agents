@@ -44,7 +44,7 @@ git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$WORKSPACE
 
 node "$APP/root/supervisor.mjs" --user --config "$CONFIG" --state "$STATE" --daemon
 for _ in $(seq 60); do
-  if node -e 'fetch("http://127.0.0.1:3000/api/health").then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))'; then
+  if node -e 'fetch("http://127.0.0.1:3000/_cosmo/api/health").then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))'; then
     say "ready"
     exit 0
   fi

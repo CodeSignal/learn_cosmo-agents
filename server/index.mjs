@@ -13,6 +13,7 @@ import { createCodexGateway } from "./gateways/codex.mjs";
 import { createClaudeGateway } from "./gateways/claude.mjs";
 import { claudeCeilings, codexCeilings, opencodeStartEffort } from "../policy/render.mjs";
 import { workspaceDiff, SCOPES } from "./workspace-git.mjs";
+import { COSMO, proxyApp, proxyAppUpgrade } from "./app-proxy.mjs";
 import { PINS, engineOf, validateTaskConfig } from "../policy/schema.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -209,12 +210,23 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
     terminal: policy.terminal,
     sandbox: policy.sandbox,
     autoMode: policy.permissions.auto,
-    preview: previewBase,
+    preview: COSMO + previewBase,
+    // The task's own web app, shown in the shell's App pane.
+    app: policy.app ? { path: policy.app.path, port: policy.app.port } : null,
   });
 
+  // The simulation's own routes are under /_cosmo (its page is also at /). With a task app,
+  // everything else is the app's; without one, the routes also answer without the prefix.
+  const own = (pathname) => {
+    if (pathname === COSMO || pathname.startsWith(COSMO + "/")) return pathname.slice(COSMO.length) || "/";
+    return policy.app && pathname !== "/" ? null : pathname;
+  };
+
   const server = http.createServer(async (req, res) => {
-    const { pathname } = new URL(req.url, "http://localhost");
+    const { pathname: requested } = new URL(req.url, "http://localhost");
+    const pathname = own(requested);
     try {
+      if (pathname === null) return proxyApp(req, res, policy.app);
       if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && crossSite(req)) {
         events.record("blocked", { gateway: "shell", action: "cross-site request", method: req.method, path: pathname });
         return sendJson(res, 403, { blocked: true, reason: "Requests from other sites or sandboxed pages are refused." });
@@ -272,7 +284,9 @@ export function createServer({ policy, events, gateways = {}, workspace = proces
   });
 
   server.on("upgrade", (req, socket, head) => {
-    const { pathname, search } = new URL(req.url, "http://localhost");
+    const { pathname: requested, search } = new URL(req.url, "http://localhost");
+    const pathname = own(requested);
+    if (pathname === null) return proxyAppUpgrade(req, socket, head, policy.app);
     if (crossSite(req)) {
       events.record("blocked", { gateway: "shell", action: "cross-site request", method: "upgrade", path: pathname });
       return socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");

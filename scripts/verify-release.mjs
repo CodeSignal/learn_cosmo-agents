@@ -100,15 +100,15 @@ async function main() {
   // (the engines themselves run only in the image: the container suite drives them).
   const events = path.join(scratch, "events");
   await boot(path.join(work, "server/index.mjs"), { PORT: String(PORT), IS_PRODUCTION: "true", POLICY_PATH: policyFile, EVENTS_DIR: events, WORKSPACE: scratch, CLAUDE_HOST_URL: `ws://127.0.0.1:${HOST_PORT}/?token=verify` }, /agentsim server on/).catch((e) => fail(e.message));
-  const session = JSON.parse((await get("/api/session")).text);
-  if (session.agents?.length !== 3 || session.active !== "opencosmo") fail(`/api/session: ${JSON.stringify(session).slice(0, 300)}`);
+  const session = JSON.parse((await get("/_cosmo/api/session")).text);
+  if (session.agents?.length !== 3 || session.active !== "opencosmo") fail(`/_cosmo/api/session: ${JSON.stringify(session).slice(0, 300)}`);
   const shell = await get("/");
   if (shell.status !== 200 || !shell.type.startsWith("text/html")) fail(`the shell page answered ${shell.status}`);
   for (const agent of ["opencosmo", "cosmodex", "cosmo-code"]) {
-    const page = await get(`/agents/${agent}/`);
+    const page = await get(`/_cosmo/agents/${agent}/`);
     const script = /<script[^>]+src="([^"]+\.js)"/.exec(page.text)?.[1];
-    if (page.status !== 200 || !script) fail(`/agents/${agent}/ answered ${page.status} without a script`);
-    const asset = await get(script.startsWith("/") ? script : `/agents/${agent}/${script}`);
+    if (page.status !== 200 || !script) fail(`/_cosmo/agents/${agent}/ answered ${page.status} without a script`);
+    const asset = await get(script.startsWith("/") ? script : `/_cosmo/agents/${agent}/${script}`);
     if (asset.status !== 200 || !/javascript/.test(asset.type)) fail(`${agent}'s ${script} answered ${asset.status} (${asset.type})`);
   }
   step("the server serves the shell, the session and all three agent UIs");

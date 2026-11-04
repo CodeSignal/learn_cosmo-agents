@@ -92,6 +92,8 @@ test("the terminal runs in the workspace, sandboxed as the task allows, with a t
   assert.match(exec({ sandboxPolicy: { type: "dangerFullAccess" } }).reason, /sandbox/);
   assert.match(exec({ sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: true } }).reason, /network/);
   assert.match(exec({ permissionProfile: "full" }).reason, /option/);
+  // A task with its own web app: the terminal's dev server needs the network.
+  assert.equal(checkParams("command/exec", { command: ["bash"], processId: "t1", sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: true } }, { ...ctx, network: true }).reason, undefined);
 });
 
 test("files and search are clamped to the workspace", () => {

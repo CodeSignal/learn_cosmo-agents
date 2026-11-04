@@ -155,6 +155,8 @@ export function codexCeilings(config) {
     // under the on-request policy it works with (the gateway pairs the two).
     reviewers: config.permissions.auto ? ["user", "auto_review"] : ["user"],
     reviewerPolicy: config.permissions.auto ? "on-request" : null,
+    // A task with its own web app: the sandbox (and the terminal's) may use the network.
+    network: !!config.app,
   };
 }
 
@@ -175,14 +177,18 @@ export function claudeCeilings(config) {
   };
 }
 
-/** Codex configuration (not requirements): the proxy as the only provider and the narrowed catalog. */
-function codexConfig(env, catalogPath, errors) {
+/**
+ * Codex configuration (not requirements): the proxy as the only provider and the narrowed catalog.
+ * A task with its own web app gives the sandbox network access, as a dev server must listen.
+ */
+function codexConfig(env, catalogPath, errors, config) {
   const baseUrl = (env.OPENAI_BASE_URL || "").trim();
   if (!baseUrl) errors.push("cosmodex is enabled but OPENAI_BASE_URL is not set");
   return {
     check_for_update_on_startup: false,
     model_provider: CODEX_PROVIDER,
     model_catalog_json: catalogPath,
+    ...(config.app && config.sandbox ? { sandbox_workspace_write: { network_access: true } } : {}),
     model_providers: {
       [CODEX_PROVIDER]: { name: "LLM proxy", base_url: baseUrl, env_key: "OPENAI_API_KEY", wire_api: "responses" },
     },
@@ -198,7 +204,7 @@ function codexRequirements(config, env, errors) {
     allow_remote_control: false,
     allow_browser_and_computer_use: false,
     allow_managed_hooks_only: true,
-    ...codexConfig(env, ROOT.codexCatalog, errors),
+    ...codexConfig(env, ROOT.codexCatalog, errors, config),
   };
 }
 
@@ -363,7 +369,7 @@ export function renderUserPolicy(config, env = {}, inputs = {}, { catalogPath, i
     const sandbox_mode = config.sandbox ? "workspace-write" : "danger-full-access";
     const effort = config.models.cosmodex.effort;
     codexArgs = toTomlOverrides({
-      ...codexConfig(env, catalogPath, errors),
+      ...codexConfig(env, catalogPath, errors, config),
       sandbox_mode,
       ...(effort ? { model_reasoning_effort: effort } : {}),
       ...(config.instructions ? { developer_instructions: config.instructions } : {}),

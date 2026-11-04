@@ -29,11 +29,11 @@ docker run --rm \
     for agent in $AGENTS; do
       case "$agent" in
         opencosmo) dir=packages/app
-          (cd $dir && OPENCOSMO_BASE=/agents/opencosmo/ VITE_ENGINE_PATH=/engine/opencosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build) ;;
+          (cd $dir && OPENCOSMO_BASE=/_cosmo/agents/opencosmo/ VITE_ENGINE_PATH=/_cosmo/engine/opencosmo VITE_COSMO=/_cosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build) ;;
         cosmodex) dir=packages/cosmodex
-          (cd $dir && COSMODEX_BASE=/agents/cosmodex/ VITE_ENGINE_PATH=/engine/cosmodex VITE_WORKSPACE=/usercode/FILESYSTEM bun run build) ;;
+          (cd $dir && COSMODEX_BASE=/_cosmo/agents/cosmodex/ VITE_ENGINE_PATH=/_cosmo/engine/cosmodex VITE_COSMO=/_cosmo VITE_WORKSPACE=/usercode/FILESYSTEM bun run build) ;;
         cosmo-code) dir=packages/cosmo-code
-          (cd $dir && COSMO_CODE_BASE=/agents/cosmo-code/ VITE_ENGINE_PATH=/engine/cosmo-code VITE_WORKSPACE=/usercode/FILESYSTEM bun run build) ;;
+          (cd $dir && COSMO_CODE_BASE=/_cosmo/agents/cosmo-code/ VITE_ENGINE_PATH=/_cosmo/engine/cosmo-code VITE_COSMO=/_cosmo VITE_WORKSPACE=/usercode/FILESYSTEM bun run build) ;;
         *) echo "unknown agent $agent" >&2; exit 64 ;;
       esac
       rm -rf "/out/$agent" && cp -a "$dir/dist" "/out/$agent"

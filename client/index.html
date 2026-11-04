@@ -27,16 +27,29 @@
     <div id="agent-switcher" class="agent-switcher" aria-label="Coding agent"></div>
     <div id="agent-status" class="agent-status" aria-live="polite"></div>
     <div class="spacer"></div>
+    <button id="btn-app" class="button button-text" aria-pressed="false" aria-controls="app-pane" hidden>Show app</button>
     <button id="btn-help" class="button button-text">Help</button>
   </header>
 
-  <main id="agent-stage" class="agent-stage">
-    <div id="stage-message" class="stage-message">
-      <div class="box card non-interactive stage-card">
-        <p class="body-large" id="stage-message-text">Starting your coding agent…</p>
+  <div class="workspace">
+    <main id="agent-stage" class="agent-stage">
+      <div id="stage-message" class="stage-message">
+        <div class="box card non-interactive stage-card">
+          <p class="body-large" id="stage-message-text">Starting your coding agent…</p>
+        </div>
       </div>
-    </div>
-  </main>
+    </main>
+    <div id="app-divider" class="app-divider" role="separator" aria-orientation="vertical" aria-label="Resize the app pane" tabindex="0" hidden></div>
+    <section id="app-pane" class="app-pane" aria-label="Your app" hidden>
+      <div class="app-bar">
+        <span id="app-address" class="body-small app-address"></span>
+        <div class="spacer"></div>
+        <button id="app-reload" class="button button-text">Reload</button>
+        <a id="app-open" class="button button-text" target="_blank" rel="noopener">Open in new tab</a>
+      </div>
+      <iframe id="app-frame" class="app-frame" title="Your app"></iframe>
+    </section>
+  </div>
 
   <script type="module" src="./app.js"></script>
 </body>

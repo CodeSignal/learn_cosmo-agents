@@ -12,9 +12,9 @@ COPY vendor/opencode ./
 COPY apps/cosmodex ./packages/cosmodex
 COPY apps/cosmo-code ./packages/cosmo-code
 RUN bun install --filter "@opencode-ai/app" --filter "@cosmo/cosmodex" --filter "@cosmo/cosmo-code" --frozen-lockfile
-RUN cd packages/app && OPENCOSMO_BASE=/agents/opencosmo/ VITE_ENGINE_PATH=/engine/opencosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build
-RUN cd packages/cosmodex && COSMODEX_BASE=/agents/cosmodex/ VITE_ENGINE_PATH=/engine/cosmodex VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
-RUN cd packages/cosmo-code && COSMO_CODE_BASE=/agents/cosmo-code/ VITE_ENGINE_PATH=/engine/cosmo-code VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
+RUN cd packages/app && OPENCOSMO_BASE=/_cosmo/agents/opencosmo/ VITE_ENGINE_PATH=/_cosmo/engine/opencosmo VITE_COSMO=/_cosmo VITE_WORKSPACE=/usercode/FILESYSTEM OPENCODE_CHANNEL=prod bun run build
+RUN cd packages/cosmodex && COSMODEX_BASE=/_cosmo/agents/cosmodex/ VITE_ENGINE_PATH=/_cosmo/engine/cosmodex VITE_COSMO=/_cosmo VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
+RUN cd packages/cosmo-code && COSMO_CODE_BASE=/_cosmo/agents/cosmo-code/ VITE_ENGINE_PATH=/_cosmo/engine/cosmo-code VITE_COSMO=/_cosmo VITE_WORKSPACE=/usercode/FILESYSTEM bun run build
 
 # bwrap for user mode (the platform's standard image has none and setup has no root to install
 # it): the binary from Ubuntu 22.04's package, which matches that image's libraries.

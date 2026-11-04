@@ -68,7 +68,7 @@ check S9 "supervisor starts as root via sudo" \
   R 'sudo -n /opt/agentsim/bin/agentsim-start'
 sleep 2
 check S10 "server answers on :3000 with the task's agents" \
-  as_runner 'curl -sf localhost:3000/api/session | grep -q "\"active\":\"opencosmo\""'
+  as_runner 'curl -sf localhost:3000/_cosmo/api/session | grep -q "\"active\":\"opencosmo\""'
 check S11 "the shell page is served" \
   as_runner 'curl -sf localhost:3000/ | grep -q "Cosmo Agents"'
 check S12 "server runs as agentsim, supervisor as root" \
@@ -80,9 +80,9 @@ check R11b "the session user cannot take port 3000 while the server is up" \
 check R11c "a killed server is restarted" \
   sh -c "old=\$(docker exec $NAME pgrep -f server/index.mjs | head -1); docker exec $NAME kill \$old; sleep 3; new=\$(docker exec $NAME pgrep -f server/index.mjs | head -1); [ -n \"\$new\" ] && [ \"\$new\" != \"\$old\" ]"
 check R11d "an impostor on :3000 is killed and the server comes back" \
-  sh -c "docker exec $NAME pkill -f server/index.mjs; docker exec -d -u runner $NAME python3 -m http.server 3000; sleep 8; docker exec -u runner $NAME curl -sf localhost:3000/api/session >/dev/null && docker exec $NAME grep -q '\"type\":\"tamper\"' /var/lib/agentsim/supervisor.jsonl"
+  sh -c "docker exec $NAME pkill -f server/index.mjs; docker exec -d -u runner $NAME python3 -m http.server 3000; sleep 8; docker exec -u runner $NAME curl -sf localhost:3000/_cosmo/api/session >/dev/null && docker exec $NAME grep -q '\"type\":\"tamper\"' /var/lib/agentsim/supervisor.jsonl"
 check S13 "switching is refused (task disallows it) and logged" \
-  sh -c "docker exec -u runner $NAME curl -s -o /dev/null -w '%{http_code}' -X POST localhost:3000/api/switch -d '{\"agent\":\"cosmodex\"}' | grep -q 403 && docker exec $NAME grep -q '\"reason\":\"switching disabled\"' /var/lib/agentsim/events/events.jsonl"
+  sh -c "docker exec -u runner $NAME curl -s -o /dev/null -w '%{http_code}' -X POST localhost:3000/_cosmo/api/switch -d '{\"agent\":\"cosmodex\"}' | grep -q 403 && docker exec $NAME grep -q '\"reason\":\"switching disabled\"' /var/lib/agentsim/events/events.jsonl"
 check S14 "the session user cannot rewrite the event log" \
   as_runner '! echo x >> /var/lib/agentsim/events/events.jsonl 2>/dev/null && ! echo x >> /var/lib/agentsim/supervisor.jsonl 2>/dev/null'
 check S15 "run_solution prints setup, events and supervisor log" \
@@ -90,13 +90,13 @@ check S15 "run_solution prints setup, events and supervisor log" \
 
 echo
 echo "-- OpenCosmo (OpenCode engine)"
-G=localhost:3000/engine/opencosmo
+G=localhost:3000/_cosmo/engine/opencosmo
 D='directory=%2Fusercode%2FFILESYSTEM'
 sleep 2
 check O1 "opencode serve runs as the session user on loopback only" \
   as_root '[ "$(ps -o user= -p $(pgrep -f "opencode serve" | head -1))" = runner ] && grep -q "0100007F:1000 00000000:0000 0A" /proc/net/tcp && ! grep -qE "00000000:1000 00000000:0000 0A" /proc/net/tcp'
 check O2 "the OpenCosmo UI is served" \
-  as_runner 'curl -sf localhost:3000/agents/opencosmo/ | grep -q "<div id=\"root\""'
+  as_runner 'curl -sf localhost:3000/_cosmo/agents/opencosmo/ | grep -q "<div id=\"root\""'
 check O3 "the engine refuses requests without the gateway's password" \
   as_runner '[ "$(curl -s -o /dev/null -w %{http_code} 127.0.0.1:4096/global/health)" = 401 ] && curl -sf '$G'/global/health | grep -q "\"healthy\":true"'
 # Send a prompt without waiting for the turn (it may stop at a permission prompt).
@@ -134,7 +134,7 @@ echo "-- Cosmodex (Codex engine)"
 check X0 "codex app-server runs as the session user on loopback only" \
   as_root '[ "$(ps -o user= -p $(pgrep -f "codex app-server" | head -1))" = runner ] && grep -q "0100007F:1194 00000000:0000 0A" /proc/net/tcp && ! grep -q "00000000:1194 00000000:0000 0A" /proc/net/tcp'
 check X10 "the Cosmodex UI is served and reported available" \
-  as_runner 'curl -sf localhost:3000/agents/cosmodex/ | grep -q "<title>Cosmodex</title>" && curl -sf localhost:3000/api/session | jq -e ".agents[] | select(.id==\"cosmodex\") | .available" >/dev/null'
+  as_runner 'curl -sf localhost:3000/_cosmo/agents/cosmodex/ | grep -q "<title>Cosmodex</title>" && curl -sf localhost:3000/_cosmo/api/session | jq -e ".agents[] | select(.id==\"cosmodex\") | .available" >/dev/null'
 out=$(docker exec -u runner "$NAME" node /opt/cosmodex-check.mjs 2>&1); echo "$out"
 FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL')))
 check X9 "Cosmodex refusals and approval answers are in the event log" \
@@ -145,7 +145,7 @@ echo "-- Cosmo Code (Claude engine through the Agent SDK)"
 check C0 "the engine host runs as the session user on loopback only" \
   as_root '[ "$(ps -o user= -p $(pgrep -f "claude-host/host.mjs" | head -1))" = runner ] && grep -q "0100007F:11F8 00000000:0000 0A" /proc/net/tcp && ! grep -q "00000000:11F8 00000000:0000 0A" /proc/net/tcp'
 check C10 "the Cosmo Code UI is served and reported available" \
-  as_runner 'curl -sf localhost:3000/agents/cosmo-code/ | grep -q "<title>Cosmo Code</title>" && curl -sf localhost:3000/api/session | jq -e ".agents[] | select(.id==\"cosmo-code\") | .available" >/dev/null'
+  as_runner 'curl -sf localhost:3000/_cosmo/agents/cosmo-code/ | grep -q "<title>Cosmo Code</title>" && curl -sf localhost:3000/_cosmo/api/session | jq -e ".agents[] | select(.id==\"cosmo-code\") | .available" >/dev/null'
 out=$(docker exec -u runner "$NAME" node /opt/cosmo-code-check.mjs 2>&1); echo "$out"
 FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL')))
 check C9 "Cosmo Code refusals and approval answers are in the event log" \

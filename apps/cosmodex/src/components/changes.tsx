@@ -7,6 +7,7 @@ import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
 import { parseDiff, totals, type DiffFile } from "../diff"
 import { activeThread, openFile, setChangesScope, showToast, state, toggleWrap, turnDiff, type ChangesScope } from "../store"
+import { COSMO } from "../engine"
 
 const SCOPES: { id: ChangesScope; label: string }[] = [
   { id: "lastTurn", label: "Last Turn" },
@@ -16,7 +17,7 @@ const SCOPES: { id: ChangesScope; label: string }[] = [
 ]
 
 async function workspaceDiff(scope: ChangesScope): Promise<string> {
-  const res = await fetch(`/api/workspace/diff?scope=${scope}`)
+  const res = await fetch(`${COSMO}/api/workspace/diff?scope=${scope}`)
   const body = await res.json()
   return body.available === false ? "" : (body.diff ?? "")
 }
