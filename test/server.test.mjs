@@ -146,7 +146,7 @@ test("the preview serves workspace files sandboxed, and nothing outside the work
   const base = await listen(server);
   t.after(() => server.close());
   const { preview } = await (await fetch(`${base}/api/session`)).json();
-  assert.match(preview, /^\/api\/workspace\/preview\/[0-9a-f]{32}\/$/);
+  assert.match(preview, /^\/_cosmo\/api\/workspace\/preview\/[0-9a-f]{32}\/$/);
   // Without the session's token there's nothing to load.
   assert.equal((await fetch(`${base}/api/workspace/preview/site/index.html`)).status, 404);
   const get = (p) => fetch(`${base}${preview}${p}`);
@@ -161,4 +161,52 @@ test("the preview serves workspace files sandboxed, and nothing outside the work
   assert.equal(pdf.headers.get("content-security-policy"), null);
   assert.equal((await get("notes.py")).status, 415);
   for (const p of ["link.html", ".codesignal/agent-sim.html", "..%2F..%2Fetc%2Fpasswd", "%2E%2E/x.html", "missing.html", "site"]) assert.equal((await get(p)).status, p === "site" ? 415 : 404, p);
+});
+
+test("a task app: the simulation's routes move under /_cosmo, everything else reaches the app", async (t) => {
+  const seen = [];
+  const app = http.createServer((req, res) => {
+    seen.push({ url: req.url, host: req.headers.host, origin: req.headers.origin });
+    res.writeHead(200, { "content-type": "text/plain", "service-worker-allowed": "/" });
+    res.end(`app:${req.url}`);
+  });
+  const appBase = await listen(app);
+  const port = Number(new URL(appBase).port);
+  const { server } = setup({ agents: ["cosmo-code"], app: { port } });
+  const base = await listen(server);
+  t.after(() => (server.close(), app.close()));
+
+  const session = await json(await fetch(`${base}/_cosmo/api/session`));
+  assert.deepEqual(session.body.app, { path: "/app/", port });
+  assert.match(session.body.preview, /^\/_cosmo\/api\/workspace\/preview\//);
+  // The app's own paths, and absolute paths its code uses without the base, go to the app.
+  const page = await fetch(`${base}/app/?x=1`, { headers: { origin: "https://preview.example" } });
+  assert.equal(await page.text(), "app:/app/?x=1");
+  assert.equal(page.headers.get("service-worker-allowed"), null);
+  assert.equal(await (await fetch(`${base}/data/lots.json`)).text(), "app:/app/data/lots.json");
+  assert.equal(await (await fetch(`${base}/api/session`)).text(), "app:/app/api/session");
+  assert.deepEqual(seen[0], { url: "/app/?x=1", host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` });
+  // The shell's page stays at /.
+  assert.notEqual(await (await fetch(`${base}/`)).text(), "app:/app/");
+});
+
+test("a task app that isn't running yet gets a page saying how to start it", async (t) => {
+  const probe = http.createServer();
+  const port = Number(new URL(await listen(probe)).port);
+  await new Promise((r) => probe.close(r));
+  const { server } = setup({ agents: ["cosmo-code"], app: { port } });
+  const base = await listen(server);
+  t.after(() => server.close());
+  const res = await fetch(`${base}/app/`, { headers: { accept: "text/html" } });
+  assert.equal(res.status, 502);
+  assert.match(await res.text(), new RegExp(`Nothing is running on port <code>${port}</code>`));
+});
+
+test("without a task app, the routes answer with and without /_cosmo", async (t) => {
+  const { server } = setup({ agents: ["cosmo-code"] });
+  const base = await listen(server);
+  t.after(() => server.close());
+  assert.equal((await fetch(`${base}/api/health`)).status, 200);
+  assert.equal((await fetch(`${base}/_cosmo/api/health`)).status, 200);
+  assert.equal((await json(await fetch(`${base}/_cosmo/api/session`))).body.app, null);
 });

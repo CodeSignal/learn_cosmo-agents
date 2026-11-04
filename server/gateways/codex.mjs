@@ -66,7 +66,7 @@ export function checkParams(method, params = {}, ctx) {
       const sp = p.sandboxPolicy;
       const mode = SANDBOX_TYPES[sp?.type];
       if (!mode || !ctx.sandboxModes.includes(mode)) return { reason: "the sandbox" };
-      if (sp.networkAccess) return { reason: "network access" };
+      if (sp.networkAccess && !ctx.network) return { reason: "network access" };
       if ((sp.writableRoots ?? []).some((r) => !inside(r))) return { reason: "folders outside the task's workspace" };
     }
     if (has("cwd") && !inside(p.cwd)) return { reason: "folders outside the task's workspace" };

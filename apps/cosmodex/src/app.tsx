@@ -12,10 +12,11 @@ import { CommandMenu } from "./components/command-menu"
 import { TabsPane } from "./components/tabs-pane"
 import { TableDialog } from "./components/rich-markdown"
 import { TabsToggle } from "./components/thread"
+import { COSMO } from "./engine"
 
 function Mark() {
   // Cosmo, the simulation's mascot (pixel art, served by the shell), where the original shows its mark.
-  return <img class="cx-mark" src="/cosmo.svg" alt="" />
+  return <img class="cx-mark" src={`${COSMO}/cosmo.svg`} alt="" />
 }
 
 /** Home and chats show the tabs pane; other pages don't. */

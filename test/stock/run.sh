@@ -32,7 +32,8 @@ docker exec -i -u root "$NAME" sh -c 'cat > .codesignal/agent-sim.json && echo "
   "instructions": "WORKING-AGREEMENT-7731: stay in the workspace.",
   "models": { "opencosmo": { "allowed": ["anthropic/claude-sonnet-5-5"], "names": true, "efforts": ["low", "medium", "high"] },
               "cosmodex": { "allowed": ["gpt-5.6-terra", "gpt-6-luna"], "names": true, "efforts": ["low", "medium"] },
-              "cosmo-code": { "allowed": ["claude-sonnet-5-5"], "names": true, "efforts": ["low", "medium", "high"] } } }
+              "cosmo-code": { "allowed": ["claude-sonnet-5-5"], "names": true, "efforts": ["low", "medium", "high"] } },
+  "app": { "port": 5173 } }
 JSON
 
 # What the base task's setup.sh does, with the release from a local file instead of a download.
@@ -51,4 +52,7 @@ docker exec "$NAME" node /tmp/view-check.mjs
 docker exec "$NAME" sh -c 'for p in /v1/messages /v1/responses; do if grep "\"url\":\"$p" /tmp/stub.jsonl | grep -q "\"found\":true"; then echo "PASS  I$p the task instructions reach the model"; else echo "FAIL  I$p the task instructions never reached the model"; fi; done'
 # The transcript record for grading, in the provisioner's format (server/transcript.mjs).
 docker exec "$NAME" sh -c 'sleep 3; for e in claude codex; do f=$(ls /usercode/FILESYSTEM/.codesignal/$e/interactions_summary.*.jsonl 2>/dev/null | head -1); t=$(ls /usercode/FILESYSTEM/.codesignal/$e/timeline.*.part1.txt 2>/dev/null | head -1); if [ -n "$f" ] && [ -n "$t" ] && grep -q "\"kind\": *\"session\"" "$f" && grep -q "\"input_text\"" "$f" && grep -q "USER:" "$t"; then echo "PASS  L-$e the transcript record has sessions, prompts and a timeline"; else echo "FAIL  L-$e no transcript record in .codesignal/$e"; fi; done'
+# The task's own web app (app.port 5173): every path outside the simulation's own reaches it.
+docker exec -d -u runner "$NAME" node -e 'require("http").createServer((q, s) => s.end("APP " + q.url)).listen(5173)'
+docker exec "$NAME" sh -c 'sleep 1; a=$(curl -s localhost:3000/app/x); d=$(curl -s localhost:3000/data/lots.json); h=$(curl -s -o /dev/null -w %{http_code} localhost:3000/_cosmo/api/health); r=$(curl -s localhost:3000/ | grep -c "/_cosmo/assets/"); if [ "$a" = "APP /app/x" ] && [ "$d" = "APP /app/data/lots.json" ] && [ "$h" = 200 ] && [ "$r" -ge 1 ]; then echo "PASS  A1   a task app gets every path outside the simulation'"'"'s own"; else echo "FAIL  A1   task app routing: $a | $d | $h | $r"; fi'
 echo "http://localhost:$PORT/"

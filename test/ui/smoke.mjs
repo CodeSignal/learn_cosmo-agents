@@ -159,12 +159,12 @@ const AGENTS = {
 
 // ── checks ──────────────────────────────────────────────────────────────────────────────────
 
-const session = await (await fetch(`${BASE}/api/session`)).json();
+const session = await (await fetch(`${BASE}/_cosmo/api/session`)).json();
 const browser = await launch();
 try {
   const shell = await openPage(browser, `${BASE}/`);
   const active = session.agents.find((a) => a.id === session.active);
-  const shown = await shell.until(`[...document.querySelectorAll("iframe")].some((f) => f.src.includes("/agents/${session.active}/") && f.offsetParent)`).catch((e) => e);
+  const shown = await shell.until(`[...document.querySelectorAll("iframe")].some((f) => f.src.includes("/_cosmo/agents/${session.active}/") && f.offsetParent)`).catch((e) => e);
   report("U0", `the shell shows the active agent (${active?.label ?? session.active})${session.allowSwitch ? " and the switcher" : ""}`, shown === true && (!session.allowSwitch || (await shell.evaluate(`!!document.querySelector("#agent-switcher button")`))), shown);
 
   let n = 0;
@@ -172,7 +172,7 @@ try {
     n++;
     const ui = AGENTS[agent.id];
     if (!ui) continue;
-    const page = await openPage(browser, `${BASE}/agents/${agent.id}/`);
+    const page = await openPage(browser, `${BASE}/_cosmo/agents/${agent.id}/`);
     const marker = `smoke-${agent.id}-${Date.now()}`;
     try {
       const composer = await ui.start(page);

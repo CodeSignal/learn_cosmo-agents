@@ -8,7 +8,7 @@ const { version } = JSON.parse(readFileSync(new URL("./package.json", import.met
 
 // Served by the simulation under /agents/cosmo-code/, talking to /engine/cosmo-code.
 export default defineConfig({
-  base: process.env.COSMO_CODE_BASE ?? "/agents/cosmo-code/",
+  base: process.env.COSMO_CODE_BASE ?? "/_cosmo/agents/cosmo-code/",
   plugins: [tailwindcss(), solid()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   define: { "import.meta.env.VITE_VERSION": JSON.stringify(version) },

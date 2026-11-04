@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 
 // Served by the simulation under /agents/cosmodex/, talking to /engine/cosmodex.
 export default defineConfig({
-  base: process.env.COSMODEX_BASE ?? "/agents/cosmodex/",
+  base: process.env.COSMODEX_BASE ?? "/_cosmo/agents/cosmodex/",
   plugins: [tailwindcss(), solid()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   worker: { format: "es" },

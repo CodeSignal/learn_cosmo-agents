@@ -28,6 +28,7 @@ import {
   toggleShortcuts,
   toggleSidebar,
 } from "./store"
+import { COSMO } from "./engine"
 
 /** F6 / Shift+F6: focus the next (previous) page area — sidebar, the prompt, the right column. */
 function focusArea(by: 1 | -1) {
@@ -113,7 +114,7 @@ export function App() {
               fallback={
                 <div class="cc-new">
                   {/* Cosmo, the simulation's mascot (pixel art, served by the shell). */}
-                  <img class="cc-mascot" src="/cosmo.svg" alt="" />
+                  <img class="cc-mascot" src={`${COSMO}/cosmo.svg`} alt="" />
                 </div>
               }
             >

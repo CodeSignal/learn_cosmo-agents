@@ -1,7 +1,9 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Same-origin path of the engine gateway, e.g. /engine/cosmo-code */
+  /** The simulation's own routes, /_cosmo */
+  readonly VITE_COSMO?: string
+  /** Same-origin path of the engine gateway, e.g. /_cosmo/engine/cosmo-code */
   readonly VITE_ENGINE_PATH?: string
   /** The task workspace, shown as the project */
   readonly VITE_WORKSPACE?: string

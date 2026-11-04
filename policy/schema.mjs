@@ -4,8 +4,12 @@ import PINS from "./pins.json" with { type: "json" };
 
 export { PINS };
 
-const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models", "permissions", "instructions"]);
+const KEYS = new Set(["agents", "default", "allowSwitch", "terminal", "sandbox", "webTools", "models", "permissions", "instructions", "app"]);
 const MAX_INSTRUCTIONS = 16_000;
+// Ports the simulation itself uses (the shell, then the engines), so never the candidate's app.
+export const RESERVED_PORTS = [3000, 4096, 4500, 4600];
+// Where the candidate's app shows in the simulation's App pane (its dev server's base path).
+export const APP_PATH = "/app/";
 const TERMINAL = ["off", "sandboxed"];
 // "ask" (the default): approve every edit and shell command; "engine-default": each engine's
 // own out-of-the-box behaviour; "allow": no approval prompts.
@@ -92,6 +96,8 @@ export function validateTaskConfig(raw, pins = PINS) {
     }
   }
 
+  const app = validateApp(raw.app, errors);
+
   if (errors.length) return { ok: false, errors };
   return {
     ok: true,
@@ -105,8 +111,34 @@ export function validateTaskConfig(raw, pins = PINS) {
       models,
       permissions,
       ...(typeof raw.instructions === "string" && raw.instructions.trim() ? { instructions: raw.instructions.trim() } : {}),
+      ...(app ? { app } : {}),
     },
   };
+}
+
+/**
+ * `app`: { port } — the task has its own web app (for example a Vite dev server with base "/app/")
+ * listening on this port. The preview stays the simulation's; its App pane shows the app.
+ */
+function validateApp(raw, errors) {
+  if (raw === undefined) return null;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    errors.push(`"app" must be an object like { "port": 5173 }`);
+    return null;
+  }
+  for (const key of Object.keys(raw)) if (key !== "port" && key !== "path") errors.push(`unknown key "app.${key}"`);
+  // The path is fixed; a normalized config (as the server re-reads it) carries it.
+  if (raw.path !== undefined && raw.path !== APP_PATH) errors.push(`"app.path" is always "${APP_PATH}"`);
+  const { port } = raw;
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    errors.push(`"app.port" must be a whole number from 1024 to 65535`);
+    return null;
+  }
+  if (RESERVED_PORTS.includes(port)) {
+    errors.push(`"app.port" ${port} is the simulation's own (reserved: ${RESERVED_PORTS.join(", ")})`);
+    return null;
+  }
+  return { port, path: APP_PATH };
 }
 
 /**

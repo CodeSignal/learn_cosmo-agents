@@ -15,10 +15,10 @@ const PERMISSION_REPLY = [
 ];
 
 // File and text search (v1 and v2 API). What the supervisor git-excludes (the task's own files and
-// a Python virtualenv) stays out of their results; OpenCode 1.19 no longer reads git's exclude file
-// for its search.
+// installed dependencies) stays out of their results; OpenCode 1.19 no longer reads git's exclude
+// file for its search.
 const SEARCH = ["/find/file", "/find", "/api/fs/find"];
-const EXCLUDED = /^(\.codesignal(\/|$)|main\.sh$|\.venv(\/|$))/;
+const EXCLUDED = /^(\.codesignal(\/|$)|main\.sh$|\.venv(\/|$)|node_modules(\/|$))/;
 
 /** A search result without git-excluded paths: path lists, text matches or v2 entries. */
 export function withoutExcluded(result, root) {

@@ -1,6 +1,6 @@
 // Run inside the test container as the session user: drives the Cosmodex gateway against the
 // real `codex app-server` and prints one "PASS|FAIL <id> <description>" line per check.
-const G = "http://localhost:3000/engine/cosmodex";
+const G = "http://localhost:3000/_cosmo/engine/cosmodex";
 const WS = "/usercode/FILESYSTEM";
 let failed = 0;
 
@@ -103,7 +103,7 @@ if (edit.body.result) {
   const ask = await ev.waitFor((m) => m.id !== undefined && m.method === "item/fileChange/requestApproval" && m.params?.threadId === tid);
   if (ask) await fetch(`${G}/respond`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: String(ask.id), result: { decision: "accept" } }) });
   await ev.waitFor((m) => m.method === "turn/completed" && m.params?.threadId === tid);
-  const diff = await (await fetch("http://localhost:3000/api/workspace/diff?scope=uncommitted")).json();
+  const diff = await (await fetch("http://localhost:3000/_cosmo/api/workspace/diff?scope=uncommitted")).json();
   report("X11", "an approved file edit lands in the workspace and in the read-only Uncommitted view",
     !!ask && /\+\+\+ b\/notes\/hello.txt/.test(diff.diff) && /\+hello from cosmodex/.test(diff.diff), JSON.stringify(diff).slice(0, 300));
 }

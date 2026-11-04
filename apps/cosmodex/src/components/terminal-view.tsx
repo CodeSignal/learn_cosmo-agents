@@ -5,8 +5,8 @@
 import { createEffect, onCleanup, onMount } from "solid-js"
 import type { FitAddon, Terminal } from "ghostty-web"
 import { useTheme } from "@opencode-ai/ui/theme/context"
-import { call, EngineError } from "../engine"
-import { onTerminalOutput, setTabTitle, WORKSPACE } from "../store"
+import { COSMO, call, EngineError } from "../engine"
+import { onTerminalOutput, setTabTitle, state, WORKSPACE } from "../store"
 
 let shared: Promise<{ mod: typeof import("ghostty-web"); ghostty: import("ghostty-web").Ghostty }> | undefined
 const loadGhostty = () =>
@@ -27,8 +27,9 @@ function toBase64(text: string) {
 // OSC 0/2: the shell setting the window title.
 const TITLE = /\x1b\][02];([^\x07\x1b]*)(?:\x07|\x1b\\)/g
 
-const SANDBOXES = [
-  { type: "workspaceWrite", writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+// A task with its own web app gives the terminal network access, so its dev server can listen.
+const sandboxes = () => [
+  { type: "workspaceWrite", writableRoots: [], networkAccess: state.app, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
   { type: "readOnly", networkAccess: false },
 ]
 
@@ -110,10 +111,10 @@ export function TerminalView(props: { tabId: string; processId: string; active: 
           cwd: WORKSPACE,
           env: { TERM: "xterm-256color", COLORTERM: "truecolor" },
           size: { cols: t.cols, rows: t.rows },
-          sandboxPolicy: SANDBOXES[sandbox],
+          sandboxPolicy: sandboxes()[sandbox],
         })
       } catch (error) {
-        if (error instanceof EngineError && error.blocked && sandbox + 1 < SANDBOXES.length) return start(sandbox + 1)
+        if (error instanceof EngineError && error.blocked && sandbox + 1 < sandboxes().length) return start(sandbox + 1)
         throw error
       }
     }
@@ -149,7 +150,7 @@ export function TerminalView(props: { tabId: string; processId: string; active: 
 export function terminateOnUnload(processIds: () => string[]) {
   addEventListener("pagehide", () => {
     for (const processId of processIds()) {
-      void fetch(`${import.meta.env.VITE_ENGINE_PATH ?? "/engine/cosmodex"}/rpc`, {
+      void fetch(`${import.meta.env.VITE_ENGINE_PATH ?? `${COSMO}/engine/cosmodex`}/rpc`, {
         method: "POST",
         keepalive: true,
         headers: { "content-type": "application/json" },

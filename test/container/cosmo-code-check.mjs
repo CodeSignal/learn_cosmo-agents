@@ -1,7 +1,7 @@
 // Run inside the test container as the session user: drives the Cosmo Code gateway against the
 // engine host and the pinned Claude Code engine, and prints one "PASS|FAIL <id> <description>"
 // line per check.
-const G = "http://localhost:3000/engine/cosmo-code";
+const G = "http://localhost:3000/_cosmo/engine/cosmo-code";
 const started = new Date().toISOString();
 let failed = 0;
 

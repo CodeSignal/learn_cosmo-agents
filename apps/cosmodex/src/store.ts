@@ -1,6 +1,6 @@
 // App state, kept in step with the engine's notifications.
 import { createStore, produce } from "solid-js/store"
-import { call, EngineError, listen, respond, type EngineMessage } from "./engine"
+import { COSMO, call, EngineError, listen, respond, type EngineMessage } from "./engine"
 import type { Thread } from "./protocol/v2/Thread"
 import type { Turn } from "./protocol/v2/Turn"
 import type { ThreadItem } from "./protocol/v2/ThreadItem"
@@ -84,6 +84,8 @@ const [state, setState] = createStore({
   terminal: false,
   /** Whether the task offers "Approve for me" (the server's /api/session). */
   autoMode: false,
+  /** Whether the task has its own web app, whose dev server the terminal must be able to run. */
+  app: false,
   /** Who answers approval requests: the candidate, or Codex's review agent ("Approve for me"). */
   reviewer: "user" as "user" | "auto_review",
 })
@@ -262,7 +264,7 @@ export async function refreshThreads() {
 /** The task's default model, from the simulation shell's session (same origin). */
 async function taskDefaultModel(): Promise<string | undefined> {
   try {
-    const session = await (await fetch("/api/session")).json()
+    const session = await (await fetch(`${COSMO}/api/session`)).json()
     return session.agents?.find((a: { id: string }) => a.id === "cosmodex")?.models?.default
   } catch {
     return undefined
@@ -533,9 +535,9 @@ export function setReviewer(reviewer: "user" | "auto_review") {
 
 export function start() {
   listen(onMessage)
-  void fetch("/api/session")
+  void fetch(`${COSMO}/api/session`)
     .then((res) => (res.ok ? res.json() : undefined))
-    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", autoMode: !!session?.autoMode }))
+    .then((session) => setState({ terminal: !!session?.terminal && session.terminal !== "off", autoMode: !!session?.autoMode, app: !!session?.app }))
     .catch(() => setState("terminal", false))
 }
 

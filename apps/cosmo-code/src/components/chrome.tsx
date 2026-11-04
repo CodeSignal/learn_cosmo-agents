@@ -50,6 +50,7 @@ import {
   WORKSPACE,
   type Session,
 } from "../store"
+import { COSMO } from "../engine"
 
 const LOCKED = "Not available in this task"
 export const soon = () => showToast("This part of Cosmo Code isn't available yet.")
@@ -614,7 +615,7 @@ export function SessionRail() {
   const [git] = createResource(
     () => ({ version: state.changesVersion, session: state.activeId }),
     () =>
-      fetch("/api/workspace/diff?scope=base")
+      fetch(`${COSMO}/api/workspace/diff?scope=base`)
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null) as Promise<{ available: boolean; branch?: string | null; diff: string } | null>,
   )

@@ -15,7 +15,7 @@ import type { FitAddon, Terminal } from "ghostty-web"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { Icon } from "../icons"
 import { MenuList, Popover } from "./popover"
-import { call } from "../engine"
+import { COSMO, call } from "../engine"
 import { parseDiff, totals, type DiffFile } from "../diff"
 import { tasksOf, type BackgroundTask } from "../tasks"
 import { SubagentMessages } from "./transcript"
@@ -341,7 +341,7 @@ export function PreviewPane() {
 type Diff = { available: boolean; base?: string | null; diff: string }
 
 async function workspaceDiff(scope: "base" | "uncommitted"): Promise<Diff> {
-  const res = await fetch(`/api/workspace/diff?scope=${scope}`)
+  const res = await fetch(`${COSMO}/api/workspace/diff?scope=${scope}`)
   return res.ok ? res.json() : { available: false, diff: "" }
 }
 

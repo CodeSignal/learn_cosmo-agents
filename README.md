@@ -16,12 +16,14 @@ or dark theme.
 
 ```
 preview iframe (:3000)
-  └─ shell (design system): agent switcher, help, status
-       └─ /agents/<agent>/   the agent's UI (one frame per agent, kept alive on switch)
-server (:3000, user agentsim)
-  ├─ /api/session, /api/switch          the task's agents and the active one
-  ├─ /api/workspace/diff, …/preview/    the workspace's changes; files for a UI's preview
-  ├─ /engine/<agent>/*                  that engine's gateway: allowlist in, refusals logged
+  └─ shell at / (design system): agent switcher, help, status, App pane
+       ├─ /_cosmo/agents/<agent>/   the agent's UI (one frame per agent, kept alive on switch)
+       └─ /app/                     the task's own web app, if it has one (App pane)
+server (:3000, user agentsim); its own routes are under /_cosmo
+  ├─ /_cosmo/api/session, …/switch      the task's agents and the active one
+  ├─ /_cosmo/api/workspace/diff, …      the workspace's changes; files for a UI's preview
+  ├─ /_cosmo/engine/<agent>/*           that engine's gateway: allowlist in, refusals logged
+  ├─ everything else                    the task's app on its own port (only with `app`)
   └─ event log                          turns, switches, permission answers, blocked attempts
 engines (session user)
   ├─ opencode serve                     behind a filtering HTTP proxy
@@ -70,6 +72,7 @@ The task ships `.codesignal/agent-sim.json`. A task can only narrow what
 | `models.<agent>.efforts` | all the engine's | Effort levels the candidate may pick (Claude Code: `low` … `max`; Codex: `minimal` … `xhigh`; OpenCode: its model variants, `none` … `max`); `effort` picks the starting one |
 | `models.<agent>.names` | real names | `true` shows cosmic names (Orbit, Nova, Comet, …) instead of the models' and vendors' names; an object names them one by one. Graders still see the real ids |
 | `instructions` | none | Standing instructions every agent gets, like a user-level instructions file: appended to Cosmo Code's system prompt, Codex's developer instructions, an instructions file for OpenCosmo (user mode) |
+| `app` | none | `{ "port": n }`: the task's own web app, served under `/app/` on that port, shown in the App pane (below) |
 | `permissions.preset` | `"ask"` | `"ask"`: approve every edit and shell command; `"engine-default"`: each engine's own behaviour; `"allow"`: no prompts |
 | `permissions.edit` | from preset | `"ask"`, `"allow"` or `"deny"` for file edits |
 | `permissions.bash` | from preset | One action for all shell commands, or `{ "<pattern>": action }` with `*` wildcards, later patterns winning |
@@ -90,6 +93,22 @@ and sessions still start asking:
 
 In Cosmo Code the task's ask rules apply in every other mode and are lifted in Auto, where they
 would make even Auto ask. Automatic answers are recorded like the candidate's own.
+
+**A task with its own web app.** The platform previews only port 3000, which the simulation
+uses. With `"app": { "port": 5173 }`, the shell gets an App pane beside the agent showing the
+app, and the server passes every path outside its own (`/` and `/_cosmo/…`) to the app's dev
+server on that port, WebSockets (hot reload) included. The task's side:
+
+- Serve the app under `/app/` on that port (Vite: `base: "/app/"`, `server.port` and
+  `preview.port` the task's, `strictPort`). Absolute paths the app's code uses without the base
+  (`fetch("/data/lots.json")`) are passed under it, so the code needn't change.
+- The grading script checks the app on its own port (for example `http://127.0.0.1:5173/app/`),
+  not 3000.
+- The sandboxes keep the network so a dev server can listen and be reached: Codex's
+  workspace-write sandbox and terminal, and Cosmo Code's terminal. OpenCosmo's commands always can.
+- The app runs on the simulation's origin, unsandboxed (storage and service workers work as in a
+  normal browser; a service worker can't claim more than `/app/`). It can call the simulation's
+  routes, as the agent's own shell commands already can.
 
 ## Setup in a task
 

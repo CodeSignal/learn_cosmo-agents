@@ -2,7 +2,7 @@
 // messages (history from session/read, then the live SDK messages), the text streaming in, and the
 // engine's open permission requests.
 import { createStore, produce } from "solid-js/store"
-import { call, EngineError, listen, respond, type EngineMessage } from "./engine"
+import { COSMO, call, EngineError, listen, respond, type EngineMessage } from "./engine"
 import { prefs, setUnread } from "./prefs"
 import { kindOf, statusOf, type BackgroundTask } from "./tasks"
 
@@ -322,7 +322,7 @@ async function settleIds(sessionId: string) {
 
 export function start() {
   listen(onMessage)
-  void fetch("/api/session")
+  void fetch(`${COSMO}/api/session`)
     .then((res) => (res.ok ? res.json() : undefined))
     .then((session) => {
       const models = session?.agents?.find((a: { id: string }) => a.id === "cosmo-code")?.models
