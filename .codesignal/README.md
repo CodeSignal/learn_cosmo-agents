@@ -15,7 +15,8 @@ release layout they depend on.
 
 - `setup.sh` installs the release for the channel in `~/.cosmo-agents` (outside the workspace)
   and starts the simulation; it returns once the server on :3000 answers. Production runs the
-  latest release, staging (`APP_ENVIRONMENT=staging`) the newest build.
+  latest release, staging (`APP_ENVIRONMENT=staging`) the newest build. When the release's
+  download link fails, it fetches the same file through GitHub's API.
 - `run_solution.sh` prints the simulation's report (main README, "Evaluation output").
 
 The workspace holds only the task's own files, so the editor shows the task's code and what the
